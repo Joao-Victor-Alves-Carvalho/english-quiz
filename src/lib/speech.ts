@@ -39,3 +39,32 @@ export function vibrate(pattern: number | number[]): void {
     // Alguns navegadores (iPhone) não vibram.
   }
 }
+
+/** Lê várias frases em sequência, avisando qual está sendo lida (-1 no fim). */
+export function speakSequence(texts: readonly string[], onIndex: (i: number) => void, rate = 0.9): void {
+  if (!canSpeak()) return;
+  try {
+    const synth = window.speechSynthesis;
+    synth.cancel();
+    const voice = pickVoice();
+    texts.forEach((text, i) => {
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'en-US';
+      u.rate = rate;
+      if (voice) u.voice = voice;
+      u.onstart = () => onIndex(i);
+      if (i === texts.length - 1) u.onend = () => onIndex(-1);
+      synth.speak(u);
+    });
+  } catch {
+    onIndex(-1);
+  }
+}
+
+export function stopSpeaking(): void {
+  try {
+    if (canSpeak()) window.speechSynthesis.cancel();
+  } catch {
+    // ignora
+  }
+}

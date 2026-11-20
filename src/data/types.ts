@@ -25,6 +25,8 @@ export interface Pack {
   id: string;
   title: string;
   subtitle: string;
+  /** core: sequência principal (libera com 80% do anterior); theme: temático (libera com palavras vistas). */
+  kind: 'core' | 'theme';
   items: Item[];
 }
 

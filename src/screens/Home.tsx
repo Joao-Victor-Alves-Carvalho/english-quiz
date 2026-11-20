@@ -1,24 +1,37 @@
 import { motion } from 'motion/react';
+import type { NavTarget } from '../App';
 import { packs } from '../data/packs';
 import { situations } from '../data/situations';
+import { stories } from '../data/stories';
+import type { Pack } from '../data/types';
+import { IconFlame, IconMic, IconSpeaker } from '../components/Icons';
 import { isUnlocked } from '../lib/chat';
-import { IconFlame, IconList, IconMic, IconSpeaker } from '../components/Icons';
-import { currentStreak, masteredRatio, pausedMinutes, UNLOCK_RATIO, type PauseKind, type Progress } from '../lib/progress';
+import { earthYearsIfOnMiller, formatEarth, formatMiller, formatStudy, millerSeconds } from '../lib/miller';
+import {
+  currentStreak,
+  masteredRatio,
+  pausedMinutes,
+  THEME_UNLOCK_SEEN,
+  todayMs,
+  UNLOCK_RATIO,
+  type PauseKind,
+  type Progress,
+} from '../lib/progress';
 import { MASTERED_BOX } from '../lib/srs';
 
 interface Props {
   progress: Progress;
   dueCount: number;
   newCount: number;
-  unlockedCount: number;
+  mistakesCount: number;
+  unlocked: Pack[];
+  seenWords: number;
   onStart: () => void;
   onExtra: () => void;
-  onWords: () => void;
-  onToggleAudio: () => void;
-  onToggleSounds: () => void;
+  onMistakes: () => void;
+  onNavigate: (target: NavTarget) => void;
+  onFocus: (packId: string | null) => void;
   onResume: (kind: PauseKind) => void;
-  onSituations: () => void;
-  seenWords: number;
 }
 
 function greeting(): string {
@@ -31,18 +44,40 @@ function greeting(): string {
 const enter = (i: number) => ({
   initial: { opacity: 0, y: 20 },
   animate: { opacity: 1, y: 0 },
-  transition: { delay: 0.06 * i, type: 'spring' as const, stiffness: 220, damping: 24 },
+  transition: { delay: 0.05 * i, type: 'spring' as const, stiffness: 220, damping: 24 },
 });
 
 export function Home(props: Props) {
-  const { progress, dueCount, newCount, unlockedCount, onStart, onExtra, onWords, onToggleAudio, onToggleSounds, onResume, onSituations, seenWords } = props;
-  const openSituations = situations.filter((s) => isUnlocked(s, seenWords)).length;
+  const { progress, dueCount, newCount, mistakesCount, unlocked, seenWords, onStart, onExtra, onMistakes, onNavigate, onFocus, onResume } = props;
   const now = Date.now();
   const streak = currentStreak(progress, now);
+  const hasWork = dueCount + newCount > 0;
+  const seenAny = seenWords > 0;
   const micPaused = pausedMinutes(progress, 'mic', now);
   const audioPaused = pausedMinutes(progress, 'audio', now);
-  const hasWork = dueCount + newCount > 0;
-  const seenAny = Object.keys(progress.cards).length > 0;
+  const today = todayMs(progress, now);
+  const goalMs = progress.settings.goalMinutes * 60_000;
+  const goalPct = Math.min(1, today / goalMs);
+  const unlockedIds = new Set(unlocked.map((p) => p.id));
+  const openSituations = situations.filter((s) => isUnlocked(s, seenWords)).length;
+  const openStories = stories.filter((s) => seenWords >= s.unlockAt).length;
+  const focus = progress.settings.focusPack;
+
+  const tiles: { id: string; emoji: string; title: string; sub: string; onClick: () => void; badge?: number }[] = [
+    { id: 'situations', emoji: '💬', title: 'Situações reais', sub: `${openSituations} de ${situations.length} liberadas`, onClick: () => onNavigate('situations') },
+    { id: 'stories', emoji: '📖', title: 'Histórias', sub: `${openStories} de ${stories.length} liberadas`, onClick: () => onNavigate('stories') },
+    { id: 'ear', emoji: '🎧', title: 'Ditado e shadowing', sub: 'Ouvir, escrever e repetir', onClick: () => onNavigate('ear') },
+    {
+      id: 'mistakes',
+      emoji: '📕',
+      title: 'Caderno de erros',
+      sub: mistakesCount > 0 ? `${mistakesCount} para revisar` : 'Nenhum erro recente',
+      onClick: onMistakes,
+      badge: mistakesCount,
+    },
+    { id: 'progress', emoji: '📈', title: 'Progresso', sub: 'Gráfico e medalhas', onClick: () => onNavigate('progress') },
+    { id: 'words', emoji: '🔤', title: 'Palavras', sub: `${seenWords} vistas`, onClick: () => onNavigate('words') },
+  ];
 
   return (
     <section className="screen" aria-label="Início">
@@ -57,6 +92,11 @@ export function Home(props: Props) {
           {streak}
           <span className="sr-only">dias seguidos</span>
         </span>
+        <button type="button" className="icon-btn" onClick={() => onNavigate('settings')} aria-label="Ajustes">
+          <span aria-hidden="true" style={{ fontSize: 20 }}>
+            ⚙️
+          </span>
+        </button>
       </motion.header>
 
       <motion.div className="hero glass" {...enter(1)}>
@@ -92,7 +132,7 @@ export function Home(props: Props) {
         ) : (
           <>
             <p className="muted" style={{ margin: 0 }}>
-              Você revisou tudo o que estava pendente. As próximas revisões chegam amanhã.
+              Você revisou tudo o que estava pendente. As próximas revisões chegam nos próximos dias.
             </p>
             {seenAny && (
               <button type="button" className="btn btn-ghost btn-block" onClick={onExtra}>
@@ -103,26 +143,89 @@ export function Home(props: Props) {
         )}
       </motion.div>
 
-      <motion.button type="button" className="situations-card glass" onClick={onSituations} whileTap={{ scale: 0.98 }} {...enter(2)}>
-        <span className="emojis" aria-hidden="true">
-          🍝☕🎉
-        </span>
-        <span style={{ flex: 1 }}>
-          <p className="eyebrow" style={{ marginBottom: 4 }}>
-            Novo · conversas
-          </p>
-          <strong>Situações reais</strong>
-          <span className="muted">
-            {openSituations} de {situations.length} liberadas · restaurante, café, hotel…
-          </span>
-        </span>
-        <span aria-hidden="true" style={{ fontSize: 22, color: 'var(--muted)' }}>
-          ›
-        </span>
-      </motion.button>
+      <motion.div className="miller glass" {...enter(2)}>
+        <div className="row" style={{ alignItems: 'center', gap: 14 }}>
+          <div className="goal-ring" role="img" aria-label={`Meta do dia: ${formatStudy(today)} de ${progress.settings.goalMinutes} min`}>
+            <svg viewBox="0 0 64 64" aria-hidden="true">
+              <circle cx="32" cy="32" r="27" stroke="rgba(255,255,255,.1)" strokeWidth="7" fill="none" />
+              <motion.circle
+                cx="32"
+                cy="32"
+                r="27"
+                stroke="url(#goalGrad)"
+                strokeWidth="7"
+                strokeLinecap="round"
+                fill="none"
+                initial={{ pathLength: 0 }}
+                animate={{ pathLength: goalPct }}
+                transition={{ duration: 1, ease: 'easeOut' }}
+              />
+              <defs>
+                <linearGradient id="goalGrad" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0" stopColor="#8b5cf6" />
+                  <stop offset="1" stopColor="#b6ff5c" />
+                </linearGradient>
+              </defs>
+            </svg>
+            <span>{goalPct >= 1 ? '✓' : `${Math.round(goalPct * 100)}%`}</span>
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p className="eyebrow">Tempo de Miller</p>
+            <strong className="miller-today">
+              {formatStudy(today)} <span className="muted">de {progress.settings.goalMinutes} min hoje</span>
+            </strong>
+          </div>
+        </div>
+        <p className="miller-line">
+          🪐 Durante seus <strong>{formatStudy(today)}</strong> de estudo hoje, passaram só <strong>{formatMiller(millerSeconds(today))}</strong> no planeta de Miller.
+        </p>
+        <p className="miller-line">
+          ⏳ Se tivesse estudado esse tempo lá em Miller, teriam passado <strong>{formatEarth(earthYearsIfOnMiller(today))}</strong> aqui na Terra.
+        </p>
+        <p className="muted miller-total">
+          No total: {formatStudy(progress.totalMs)} de estudo · {formatMiller(millerSeconds(progress.totalMs))} em Miller · {formatEarth(earthYearsIfOnMiller(progress.totalMs))} na Terra
+        </p>
+      </motion.div>
 
+      {(micPaused > 0 || audioPaused > 0) && (
+        <motion.div style={{ display: 'flex', flexDirection: 'column', gap: 8 }} {...enter(3)}>
+          {micPaused > 0 && (
+            <div className="pause-chip">
+              <IconMic /> Perguntas de fala pausadas · {micPaused} min
+              <button type="button" onClick={() => onResume('mic')}>
+                Reativar
+              </button>
+            </div>
+          )}
+          {audioPaused > 0 && (
+            <div className="pause-chip">
+              <IconSpeaker /> Áudio pausado · {audioPaused} min
+              <button type="button" onClick={() => onResume('audio')}>
+                Reativar
+              </button>
+            </div>
+          )}
+        </motion.div>
+      )}
+
+      <motion.div className="tiles" {...enter(4)}>
+        {tiles.map((t) => (
+          <motion.button key={t.id} type="button" className="tile glass" onClick={t.onClick} whileTap={{ scale: 0.96 }} disabled={t.id === 'mistakes' && !mistakesCount}>
+            <span className="tile-emoji" aria-hidden="true">
+              {t.emoji}
+            </span>
+            <strong>{t.title}</strong>
+            <span className="muted">{t.sub}</span>
+            {t.badge ? <span className="badge-count">{t.badge}</span> : null}
+          </motion.button>
+        ))}
+      </motion.div>
+
+      <motion.p className="eyebrow" style={{ marginTop: 6 }} {...enter(5)}>
+        Pacotes de palavras
+      </motion.p>
       {packs.map((pack, i) => {
-        const locked = i >= unlockedCount;
+        const locked = !unlockedIds.has(pack.id);
         const total = pack.items.length;
         let learning = 0;
         let mastered = 0;
@@ -133,57 +236,54 @@ export function Home(props: Props) {
           else learning++;
         }
         const ratio = masteredRatio(pack, progress.cards);
+        const focused = focus === pack.id;
+        const lockMsg =
+          pack.kind === 'theme'
+            ? `Libera com ${THEME_UNLOCK_SEEN} palavras vistas (faltam ${Math.max(0, THEME_UNLOCK_SEEN - seenWords)}).`
+            : `Libera com ${Math.round(UNLOCK_RATIO * 100)}% do pacote anterior dominado.`;
         return (
-          <motion.div key={pack.id} className={`pack glass${locked ? ' locked' : ''}`} {...enter(3 + i)}>
+          <motion.div key={pack.id} className={`pack glass${locked ? ' locked' : ''}${focused ? ' focused' : ''}`} {...enter(6 + i)}>
             <div className="row">
               <div style={{ flex: 1 }}>
-                <p className="eyebrow">Pacote {i + 1}</p>
-                <h3>{pack.title}</h3>
+                <p className="eyebrow">{pack.kind === 'theme' ? 'Temático' : `Pacote ${packs.filter((p) => p.kind === 'core').indexOf(pack) + 1}`}</p>
+                <h3>
+                  {locked ? '🔒 ' : ''}
+                  {pack.title}
+                </h3>
               </div>
               <strong style={{ fontSize: 22 }}>{Math.round(ratio * 100)}%</strong>
             </div>
             <p className="muted" style={{ margin: 0, fontSize: 14 }}>
-              {locked ? `Libera com ${Math.round(UNLOCK_RATIO * 100)}% do pacote anterior dominado.` : pack.subtitle}
+              {locked ? lockMsg : `${pack.subtitle} · ${total} itens`}
             </p>
             <div className="meter" aria-hidden="true">
               <motion.span style={{ background: 'var(--good)' }} initial={{ width: 0 }} animate={{ width: `${(mastered / total) * 100}%` }} transition={{ duration: 0.9, delay: 0.3 }} />
               <motion.span style={{ background: 'var(--violet)' }} initial={{ width: 0 }} animate={{ width: `${(learning / total) * 100}%` }} transition={{ duration: 0.9, delay: 0.4 }} />
             </div>
             <div className="legend">
-              <span><i style={{ background: 'var(--good)' }} />{mastered} dominadas</span>
-              <span><i style={{ background: 'var(--violet)' }} />{learning} aprendendo</span>
-              <span><i style={{ background: 'rgba(255,255,255,.15)' }} />{total - mastered - learning} novas</span>
+              <span>
+                <i style={{ background: 'var(--good)' }} />
+                {mastered} dominadas
+              </span>
+              <span>
+                <i style={{ background: 'var(--violet)' }} />
+                {learning} aprendendo
+              </span>
+              <span>
+                <i style={{ background: 'rgba(255,255,255,.15)' }} />
+                {total - mastered - learning} novas
+              </span>
             </div>
+            {!locked && mastered + learning < total && (
+              <button type="button" className={`focus-btn${focused ? ' on' : ''}`} onClick={() => onFocus(focused ? null : pack.id)} aria-pressed={focused}>
+                {focused ? '🎯 Em foco: as palavras novas vêm daqui · tocar para tirar' : 'Focar as palavras novas neste pacote'}
+              </button>
+            )}
           </motion.div>
         );
       })}
 
-      <motion.div style={{ marginTop: 'auto', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 10 }} {...enter(4)}>
-        {micPaused > 0 && (
-          <div className="pause-chip">
-            <IconMic /> Perguntas de fala pausadas · {micPaused} min
-            <button type="button" onClick={() => onResume('mic')}>Reativar</button>
-          </div>
-        )}
-        {audioPaused > 0 && (
-          <div className="pause-chip">
-            <IconSpeaker /> Áudio pausado · {audioPaused} min
-            <button type="button" onClick={() => onResume('audio')}>Reativar</button>
-          </div>
-        )}
-        <div className="settings-row">
-          <button type="button" className="btn btn-ghost" onClick={onWords}>
-            <IconList width={18} height={18} /> Palavras
-          </button>
-          <button type="button" className="btn btn-ghost switch" role="switch" aria-checked={progress.settings.autoAudio} onClick={onToggleAudio}>
-            Voz <span className="track" aria-hidden="true" />
-          </button>
-          <button type="button" className="btn btn-ghost switch" role="switch" aria-checked={progress.settings.sounds} onClick={onToggleSounds}>
-            Sons <span className="track" aria-hidden="true" />
-          </button>
-        </div>
-        <p className="version">Miller Minute v{__APP_VERSION__}</p>
-      </motion.div>
+      <p className="version">Miller Minute v{__APP_VERSION__}</p>
     </section>
   );
 }

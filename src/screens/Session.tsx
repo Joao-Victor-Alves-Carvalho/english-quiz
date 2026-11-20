@@ -24,7 +24,7 @@ import {
 import { MAX_RETRIES_PER_ITEM, scheduleRetry, type Step } from '../lib/session';
 import { playCorrect, playWrong } from '../lib/sfx';
 import { canSpeak, speak, vibrate } from '../lib/speech';
-import { grade, newCard } from '../lib/srs';
+import { autoRate, grade, newCard, previewDays, type CardState, type Rate } from '../lib/srs';
 
 export interface Summary {
   answered: number;
@@ -33,8 +33,12 @@ export interface Summary {
   newLearned: number;
 }
 
+/** normal: sessão do dia; extra: treino sem agendamento; mistakes: caderno de erros. */
+export type SessionKind = 'normal' | 'extra' | 'mistakes';
+
 interface Props {
   steps: Step[];
+  kind: SessionKind;
   pool: Item[];
   progress: Progress;
   updateProgress: (fn: (p: Progress) => Progress) => void;
@@ -64,7 +68,7 @@ const LABEL: Record<Mode, string> = {
 const SUPPORT = { speech: canSpeak(), recognition: canRecognize() };
 const pick = (list: readonly string[]) => list[Math.floor(Math.random() * list.length)] ?? '';
 
-export function Session({ steps, pool, progress, updateProgress, setMood, onFinish, onExit }: Props) {
+export function Session({ steps, kind, pool, progress, updateProgress, setMood, onFinish, onExit }: Props) {
   const [queue, setQueue] = useState(steps);
   const [index, setIndex] = useState(0);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -77,6 +81,9 @@ export function Session({ steps, pool, progress, updateProgress, setMood, onFini
   const stats = useRef<Summary>({ answered: 0, correct: 0, bestCombo: 0, newLearned: 0 });
   const retries = useRef(new Map<string, number>());
   const recognition = useRef<Listening | null>(null);
+  // Nota do FSRS: estado do cartão antes da resposta, para reavaliar se a pessoa trocar a nota.
+  const [rating, setRating] = useState<Rate | null>(null);
+  const graded = useRef<{ before: CardState; at: number } | null>(null);
 
   const step = queue[index];
   const item = step ? itemsById.get(step.itemId) : undefined;
@@ -139,11 +146,24 @@ export function Session({ steps, pool, progress, updateProgress, setMood, onFini
     (correct: boolean, chosen: string | null, typo = false) => {
       if (!step || !item || outcome) return;
       const now = Date.now();
+      const before = progress.cards[item.id] ?? newCard(now);
+      graded.current = step.graded && correct ? { before, at: now } : null;
+      setRating(step.graded && correct ? autoRate(true, typo) : null);
       updateProgress((p) => {
         const next = recordAnswer(p, now, correct);
-        if (!step.graded) return next;
-        const card = p.cards[item.id] ?? newCard(now);
-        return { ...next, cards: { ...p.cards, [item.id]: grade(card, correct, now) } };
+        const existing = p.cards[item.id];
+        if (step.graded) {
+          return { ...next, cards: { ...p.cards, [item.id]: grade(existing ?? newCard(now), autoRate(correct, typo), now) } };
+        }
+        if (!existing) return next;
+        // Treinos sem agendamento: o erro vai para o caderno; no caderno, o acerto tira de lá.
+        if (!correct) return { ...next, cards: { ...p.cards, [item.id]: { ...existing, lastWrong: now } } };
+        if (kind === 'mistakes' && existing.lastWrong) {
+          const fixed: CardState = { ...existing };
+          delete fixed.lastWrong;
+          return { ...next, cards: { ...p.cards, [item.id]: fixed } };
+        }
+        return next;
       });
 
       stats.current.answered += 1;
@@ -173,8 +193,15 @@ export function Session({ steps, pool, progress, updateProgress, setMood, onFini
       // A pronúncia vem depois do efeito sonoro.
       if (autoAudio && (answerField(mode) === 'en' || !correct)) setTimeout(() => speak(item.en), soundsOn ? 380 : 0);
     },
-    [autoAudio, combo, index, item, mode, outcome, pool, setMood, soundsOn, step, updateProgress],
+    [autoAudio, combo, index, item, kind, mode, outcome, pool, progress.cards, setMood, soundsOn, step, updateProgress],
   );
+
+  const rate = (r: Rate) => {
+    const g = graded.current;
+    if (!g || !item) return;
+    setRating(r);
+    updateProgress((p) => ({ ...p, cards: { ...p.cards, [item.id]: grade(g.before, r, g.at) } }));
+  };
 
   const pauseKind = useCallback(
     (kind: PauseKind) => {
@@ -243,6 +270,7 @@ export function Session({ steps, pool, progress, updateProgress, setMood, onFini
   if (!step || !item) return null;
 
   const expected = item[answerField(mode)];
+  const preview = outcome?.correct && graded.current ? previewDays(graded.current.before, graded.current.at) : null;
   const promptText = mode === 'en-pt-choice' ? item.en : item.pt;
   const pct = Math.round((index / queue.length) * 100);
 
@@ -481,7 +509,7 @@ export function Session({ steps, pool, progress, updateProgress, setMood, onFini
                 {renderPrompt()}
               </div>
               {renderAnswerArea()}
-              {outcome && <div style={{ height: outcome.correct ? 250 : 340 }} aria-hidden="true" />}
+              {outcome && <div style={{ height: outcome.correct ? 320 : 340 }} aria-hidden="true" />}
             </>
           )}
         </motion.div>
@@ -517,6 +545,19 @@ export function Session({ steps, pool, progress, updateProgress, setMood, onFini
                 <p className="muted" style={{ margin: 0 }}>
                   Grafia certa: <strong style={{ color: 'var(--text)' }}>{item.en}</strong>
                 </p>
+              )}
+              {preview && (
+                <div className="rating" role="group" aria-label="Como foi lembrar? (ajusta quando a palavra volta)">
+                  {(['hard', 'good', 'easy'] as const).map((r) => {
+                    const days = preview[r];
+                    return (
+                      <button key={r} type="button" className={`rate${rating === r ? ' on' : ''}`} onClick={() => rate(r)} aria-pressed={rating === r}>
+                        <strong>{r === 'hard' ? 'Difícil' : r === 'good' ? 'Bom' : 'Fácil'}</strong>
+                        <span>volta em {days} {days === 1 ? 'dia' : 'dias'}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               )}
               {!outcome.correct && (
                 <div className="why">
