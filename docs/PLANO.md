@@ -65,6 +65,15 @@ frases úteis com áudio. Concluir uma situação conta como dia de estudo.
    estudasse lá. 19 medalhas temáticas.
 10. **Lembrete**: gera um evento diário (.ics) para a agenda do celular, com alarme e link.
 
+## Notificações (v0.5)
+
+Web Push sem servidor próprio: o app se inscreve com a chave pública VAPID e mostra o código de
+inscrição; o João salva esse código e a chave privada como segredos do repositório; a tarefa
+agendada `notify.yml` roda às 11h50 e 20h50 (Brasília) e envia a mensagem do turno com a
+biblioteca `web-push` (só no GitHub Actions, não vai para o app). As mensagens mudam a cada dia
+e não sabem do progresso (que fica só no celular). Para avisos personalizados ("12 revisões
+esperando"), seria preciso app nativo ou sincronização na nuvem.
+
 ## Próximas fases
 
 1. **Fase 2 — FSRS**: trocar o Leitner pelo FSRS, com botões "difícil / bom / fácil".
