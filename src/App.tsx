@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { packs } from './data/packs';
+import { scenes } from './data/scenes';
 import { situations } from './data/situations';
 import { stories } from './data/stories';
 import { Aurora, type Mood } from './components/Aurora';
@@ -43,14 +44,15 @@ type Screen =
   | { name: 'result'; summary: Summary; ms: number }
   | { name: 'words' }
   | { name: 'situations' }
-  | { name: 'chat'; id: string; key: number }
+  | { name: 'scenes' }
+  | { name: 'chat'; id: string; key: number; from: 'situations' | 'scenes' }
   | { name: 'stories' }
   | { name: 'story'; id: string; key: number }
   | { name: 'ear' }
   | { name: 'progress' }
   | { name: 'settings' };
 
-export type NavTarget = 'words' | 'situations' | 'stories' | 'ear' | 'progress' | 'settings';
+export type NavTarget = 'words' | 'situations' | 'scenes' | 'stories' | 'ear' | 'progress' | 'settings';
 
 /** Telas em que o relógio de estudo (Tempo de Miller) conta. */
 const STUDY_SCREENS = new Set<Screen['name']>(['session', 'chat', 'story', 'ear']);
@@ -145,7 +147,7 @@ export function App() {
 
   const navigate = (target: NavTarget) => setScreen({ name: target } as Screen);
   const soundOn = progress.settings.sounds && pausedMinutes(progress, 'audio', Date.now()) === 0;
-  const chatSituation = screen.name === 'chat' ? situations.find((s) => s.id === screen.id) : undefined;
+  const chatSituation = screen.name === 'chat' ? [...situations, ...scenes].find((s) => s.id === screen.id) : undefined;
   const story = screen.name === 'story' ? stories.find((s) => s.id === screen.id) : undefined;
   const screenKey = 'key' in screen ? `${screen.name}-${screen.key}` : screen.name;
 
@@ -199,12 +201,26 @@ export function App() {
                 onDone={goHome}
               />
             )}
-            {screen.name === 'words' && <Words items={plan.pool} progress={progress} onBack={goHome} />}
+            {screen.name === 'words' && <Words items={plan.pool} progress={progress} onBack={() => setScreen({ name: 'progress' })} />}
             {screen.name === 'situations' && (
               <Situations
+                list={situations}
+                title="Situações reais"
+                intro="Conversas do dia a dia, como no WhatsApp. Escolha ou monte suas respostas, ou fale no microfone. Novas situações liberam conforme você aprende palavras."
                 progress={progress}
                 seenWords={seenWords}
-                onOpen={(id) => setScreen({ name: 'chat', id, key: Date.now() })}
+                onOpen={(id) => setScreen({ name: 'chat', id, key: Date.now(), from: 'situations' })}
+                onBack={goHome}
+              />
+            )}
+            {screen.name === 'scenes' && (
+              <Situations
+                list={scenes}
+                title="Cenas de filme"
+                intro="Diálogos originais no clima de filmes: ficção científica, policial, comédia romântica e terror. Cheios de expressões que você ouve no cinema e nas séries. Toque nas narrações 🎬 e nas falas para ver a tradução."
+                progress={progress}
+                seenWords={seenWords}
+                onOpen={(id) => setScreen({ name: 'chat', id, key: Date.now(), from: 'scenes' })}
                 onBack={goHome}
               />
             )}
@@ -214,7 +230,7 @@ export function App() {
                 progress={progress}
                 updateProgress={updateProgress}
                 onComplete={(stars) => setProgress((p) => completeSituation(p, chatSituation.id, stars, Date.now()))}
-                onBack={() => setScreen({ name: 'situations' })}
+                onBack={() => setScreen(screen.from === 'scenes' ? { name: 'scenes' } : { name: 'situations' })}
               />
             )}
             {screen.name === 'stories' && (
@@ -242,7 +258,7 @@ export function App() {
                 onBack={goHome}
               />
             )}
-            {screen.name === 'progress' && <ProgressScreen progress={progress} onBack={goHome} />}
+            {screen.name === 'progress' && <ProgressScreen progress={progress} onBack={goHome} onWords={() => setScreen({ name: 'words' })} />}
             {screen.name === 'settings' && <Settings progress={progress} setProgress={setProgress} onBack={goHome} />}
           </motion.div>
         </AnimatePresence>

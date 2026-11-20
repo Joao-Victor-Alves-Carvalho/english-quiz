@@ -15,7 +15,10 @@ export interface ChatOption {
 }
 
 export type ChatStep =
-  | { kind: 'them'; text: string; pt: string }
+  /** Fala de outra pessoa. `who` mostra o nome (cenas com vários personagens). */
+  | { kind: 'them'; text: string; pt: string; who?: string }
+  /** Narração da cena (ex.: "As luzes se apagam."), mostrada no meio da conversa. */
+  | { kind: 'scene'; text: string; pt: string }
   | { kind: 'choose'; goal: string; options: ChatOption[] }
   | { kind: 'build'; goal: string; text: string; pt: string; extra: string[] };
 
@@ -52,8 +55,12 @@ export function isUnlocked(situation: Situation, seenWords: number): boolean {
 }
 
 /** Turnos em que você responde. */
+export function isMyTurn(step: ChatStep | undefined): step is Extract<ChatStep, { kind: 'choose' | 'build' }> {
+  return step?.kind === 'choose' || step?.kind === 'build';
+}
+
 export function myTurns(situation: Situation): number {
-  return situation.steps.filter((s) => s.kind !== 'them').length;
+  return situation.steps.filter(isMyTurn).length;
 }
 
 /** Estrelas: 3 sem erros, 2 com até 2 turnos errados, 1 no resto. */

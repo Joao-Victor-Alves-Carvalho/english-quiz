@@ -119,7 +119,7 @@ function StudyChart({ progress }: { progress: Progress }) {
   );
 }
 
-export function ProgressScreen({ progress, onBack }: { progress: Progress; onBack: () => void }) {
+export function ProgressScreen({ progress, onBack, onWords }: { progress: Progress; onBack: () => void; onWords: () => void }) {
   const cards = Object.values(progress.cards);
   const mastered = cards.filter((c) => isMastered(c)).length;
   const earnedCount = medals.filter((m) => progress.medals[m.id]).length;
@@ -156,6 +156,10 @@ export function ProgressScreen({ progress, onBack }: { progress: Progress; onBac
       <p className="miller-line glass" style={{ padding: '14px 16px', borderRadius: 18 }}>
         🪐 Em {formatStudy(progress.totalMs)} de estudo, passaram {formatMiller(millerSeconds(progress.totalMs))} em Miller. Se fosse lá, seriam {formatEarth(earthYearsIfOnMiller(progress.totalMs))} na Terra.
       </p>
+
+      <button type="button" className="btn btn-ghost btn-block" onClick={onWords}>
+        🔤 Ver todas as palavras e o nível de cada uma
+      </button>
 
       <StudyChart progress={progress} />
 

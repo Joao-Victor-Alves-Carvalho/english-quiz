@@ -1,3 +1,4 @@
+import { scenes } from '../data/scenes';
 import { situations } from '../data/situations';
 import { stories } from '../data/stories';
 import type { Progress } from './progress';
@@ -33,6 +34,8 @@ export const medals: Medal[] = [
   { id: 'chat1', emoji: '💬', title: 'Primeiro contato', desc: 'Concluir uma situação real', earned: (p) => Object.keys(p.situations).length > 0 },
   { id: 'chat3stars', emoji: '⭐', title: 'Pouso perfeito', desc: 'Uma situação com 3 estrelas', earned: (p) => Object.values(p.situations).some((r) => r.best >= 3) },
   { id: 'chatall', emoji: '🗺️', title: 'Viajante interestelar', desc: 'Concluir todas as situações', earned: (p) => situations.every((s) => p.situations[s.id]) },
+  { id: 'cinema1', emoji: '🎬', title: 'Em cartaz', desc: 'Concluir uma cena de filme', earned: (p) => scenes.some((s) => p.situations[s.id]) },
+  { id: 'cinemaall', emoji: '🍿', title: 'Maratona', desc: 'Concluir todas as cenas de filme', earned: (p) => scenes.every((s) => p.situations[s.id]) },
   { id: 'story1', emoji: '📖', title: 'Diário de bordo', desc: 'Ler a primeira história', earned: (p) => Object.keys(p.stories).length > 0 },
   { id: 'storyall', emoji: '📚', title: 'Biblioteca da nave', desc: 'Ler todas as histórias', earned: (p) => stories.every((s) => p.stories[s.id]) },
   { id: 'ear10', emoji: '🎧', title: 'Ouvido afiado', desc: '10 rodadas de ditado ou shadowing', earned: (p) => p.ear.dictation + p.ear.shadowing >= 10 },
