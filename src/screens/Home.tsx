@@ -1,5 +1,7 @@
 import { motion } from 'motion/react';
 import { packs } from '../data/packs';
+import { situations } from '../data/situations';
+import { isUnlocked } from '../lib/chat';
 import { IconFlame, IconList, IconMic, IconSpeaker } from '../components/Icons';
 import { currentStreak, masteredRatio, pausedMinutes, UNLOCK_RATIO, type PauseKind, type Progress } from '../lib/progress';
 import { MASTERED_BOX } from '../lib/srs';
@@ -15,6 +17,8 @@ interface Props {
   onToggleAudio: () => void;
   onToggleSounds: () => void;
   onResume: (kind: PauseKind) => void;
+  onSituations: () => void;
+  seenWords: number;
 }
 
 function greeting(): string {
@@ -31,7 +35,8 @@ const enter = (i: number) => ({
 });
 
 export function Home(props: Props) {
-  const { progress, dueCount, newCount, unlockedCount, onStart, onExtra, onWords, onToggleAudio, onToggleSounds, onResume } = props;
+  const { progress, dueCount, newCount, unlockedCount, onStart, onExtra, onWords, onToggleAudio, onToggleSounds, onResume, onSituations, seenWords } = props;
+  const openSituations = situations.filter((s) => isUnlocked(s, seenWords)).length;
   const now = Date.now();
   const streak = currentStreak(progress, now);
   const micPaused = pausedMinutes(progress, 'mic', now);
@@ -98,6 +103,24 @@ export function Home(props: Props) {
         )}
       </motion.div>
 
+      <motion.button type="button" className="situations-card glass" onClick={onSituations} whileTap={{ scale: 0.98 }} {...enter(2)}>
+        <span className="emojis" aria-hidden="true">
+          🍝☕🎉
+        </span>
+        <span style={{ flex: 1 }}>
+          <p className="eyebrow" style={{ marginBottom: 4 }}>
+            Novo · conversas
+          </p>
+          <strong>Situações reais</strong>
+          <span className="muted">
+            {openSituations} de {situations.length} liberadas · restaurante, café, hotel…
+          </span>
+        </span>
+        <span aria-hidden="true" style={{ fontSize: 22, color: 'var(--muted)' }}>
+          ›
+        </span>
+      </motion.button>
+
       {packs.map((pack, i) => {
         const locked = i >= unlockedCount;
         const total = pack.items.length;
@@ -111,7 +134,7 @@ export function Home(props: Props) {
         }
         const ratio = masteredRatio(pack, progress.cards);
         return (
-          <motion.div key={pack.id} className={`pack glass${locked ? ' locked' : ''}`} {...enter(2 + i)}>
+          <motion.div key={pack.id} className={`pack glass${locked ? ' locked' : ''}`} {...enter(3 + i)}>
             <div className="row">
               <div style={{ flex: 1 }}>
                 <p className="eyebrow">Pacote {i + 1}</p>

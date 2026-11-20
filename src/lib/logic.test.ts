@@ -293,3 +293,61 @@ describe('histórico', () => {
     expect(p.totalAnswers).toBe(2);
   });
 });
+
+describe('situações (chat)', () => {
+  it('roteiros válidos: ids únicos, opções com resposta certa e explicação nas erradas', async () => {
+    const { situations } = await import('../data/situations');
+    const { tokens: toks } = await import('./chat');
+    expect(new Set(situations.map((s) => s.id)).size).toBe(situations.length);
+    expect(situations[0]?.unlockAt).toBe(0);
+    for (let i = 1; i < situations.length; i++) {
+      expect(situations[i]!.unlockAt).toBeGreaterThanOrEqual(situations[i - 1]!.unlockAt);
+    }
+    for (const s of situations) {
+      expect(s.steps.at(-1)?.kind, s.id).toBeDefined();
+      for (const step of s.steps) {
+        if (step.kind === 'choose') {
+          expect(step.options.length, `${s.id}: ${step.goal}`).toBeGreaterThanOrEqual(2);
+          expect(step.options.some((o) => o.ok), `${s.id}: ${step.goal}`).toBe(true);
+          expect(new Set(step.options.map((o) => o.text)).size).toBe(step.options.length);
+          for (const o of step.options) if (!o.ok) expect(o.why, `${s.id}: ${o.text}`).toBeTruthy();
+        }
+        if (step.kind === 'build') {
+          const words = toks(step.text);
+          expect(words.length, step.text).toBeGreaterThanOrEqual(2);
+          // Palavras extras não podem ser da frase (senão a montagem fica ambígua).
+          for (const extra of step.extra) expect(words, `${s.id}: ${extra}`).not.toContain(extra);
+        }
+      }
+    }
+  });
+
+  it('monta a frase ignorando pontuação e maiúsculas', async () => {
+    const { checkBuild, tokens: toks, explainBuild } = await import('./chat');
+    expect(toks("I'd like the chicken, please.")).toEqual(["I'd", 'like', 'the', 'chicken', 'please']);
+    expect(checkBuild(['A', 'table', 'for', 'two', 'please'], 'A table for two, please.')).toBe(true);
+    expect(checkBuild(['A', 'table', 'two', 'for', 'please'], 'A table for two, please.')).toBe(false);
+    const step = { kind: 'build' as const, goal: '', text: 'A table for two, please.', pt: 'Uma mesa para dois.', extra: ['to'] };
+    expect(explainBuild(['A', 'table', 'to', 'two', 'please'], step)).toContain('"to" não entra');
+    expect(explainBuild(['table', 'A', 'for', 'two', 'please'], step)).toContain('a ordem não');
+    expect(explainBuild(['A', 'table'], step)).toContain('Faltou palavra');
+  });
+
+  it('estrelas, liberação e registro', async () => {
+    const { stars: st, isUnlocked: unlocked, phrasesOf } = await import('./chat');
+    const { situations } = await import('../data/situations');
+    const { completeSituation } = await import('./progress');
+    expect(st(0)).toBe(3);
+    expect(st(2)).toBe(2);
+    expect(st(5)).toBe(1);
+    const hotel = situations.find((s) => s.id === 'hotel')!;
+    expect(unlocked(hotel, hotel.unlockAt - 1)).toBe(false);
+    expect(unlocked(hotel, hotel.unlockAt)).toBe(true);
+    expect(phrasesOf(hotel).length).toBeGreaterThan(3);
+    let p = completeSituation(emptyProgress(), 'hotel', 2, NOW);
+    p = completeSituation(p, 'hotel', 3, NOW);
+    p = completeSituation(p, 'hotel', 1, NOW);
+    expect(p.situations.hotel).toEqual({ done: 3, best: 3 });
+    expect(p.streak).toBe(1);
+  });
+});

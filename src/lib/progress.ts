@@ -1,4 +1,5 @@
 import type { Pack } from '../data/types';
+import type { SituationRecord } from './chat';
 import { DAY, dayKey, isMastered, startOfDay, type CardState } from './srs';
 
 export interface Settings {
@@ -31,6 +32,8 @@ export interface Progress {
   pauses: Record<PauseKind, number>;
   /** Histórico por dia (chave "AAAA-MM-DD"). */
   history: Record<string, DayStats>;
+  /** Situações concluídas: quantas vezes e melhor número de estrelas. */
+  situations: Record<string, SituationRecord>;
 }
 
 export const UNLOCK_RATIO = 0.8;
@@ -48,6 +51,7 @@ export function emptyProgress(): Progress {
     settings: { autoAudio: true, sounds: true, newPerDay: 12 },
     pauses: { audio: 0, mic: 0 },
     history: {},
+    situations: {},
   };
 }
 
@@ -113,6 +117,13 @@ export function recordAnswer(progress: Progress, now: number, correct: boolean):
   };
 }
 
+/** Registra uma situação concluída (conta como dia de estudo). */
+export function completeSituation(progress: Progress, id: string, stars: number, now: number): Progress {
+  const prev = progress.situations[id] ?? { done: 0, best: 0 };
+  const next = { ...progress, situations: { ...progress.situations, [id]: { done: prev.done + 1, best: Math.max(prev.best, stars) } } };
+  return registerStudyDay(next, now);
+}
+
 /** Esconde perguntas de áudio ou microfone por 15 minutos. */
 export function pause(progress: Progress, kind: PauseKind, now: number): Progress {
   return { ...progress, pauses: { ...progress.pauses, [kind]: now + PAUSE_MINUTES * 60_000 } };
@@ -154,6 +165,7 @@ export function loadProgress(): Progress {
       settings: { ...base.settings, ...parsed.settings },
       pauses: { ...base.pauses, ...parsed.pauses },
       history: { ...parsed.history },
+      situations: { ...parsed.situations },
     };
   } catch {
     return emptyProgress();

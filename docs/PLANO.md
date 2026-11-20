@@ -36,6 +36,16 @@
   de 5+ letras conta como acerto, mostrando a grafia certa.
 - Progresso salvo só no aparelho (localStorage). Sem backend e sem conta.
 
+## Situações reais (conversas)
+
+Além do quiz, há conversas em formato de chat (estilo WhatsApp) em `src/data/situations.ts`:
+restaurante (liberado desde o início), cafeteria (20 palavras vistas), conhecer alguém (40),
+pedir direções (70) e check-in no hotel (100). Cada turno pede um objetivo em português
+("Peça a conta") e você responde escolhendo a frase, montando a frase com as palavras na ordem
+certa, ou falando no microfone. Erros explicam armadilhas comuns de quem fala português
+("account" × "check", "for travel" × "to go"). No fim: estrelas (3 sem erros) e a lista de
+frases úteis com áudio. Concluir uma situação conta como dia de estudo.
+
 ## Próximas fases
 
 1. **Fase 2 — FSRS**: trocar o Leitner pelo FSRS, com botões "difícil / bom / fácil".
