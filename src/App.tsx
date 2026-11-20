@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { packs } from './data/packs';
+import { situations } from './data/situations';
 import { Aurora, type Mood } from './components/Aurora';
 import {
   currentStreak,
@@ -8,6 +9,7 @@ import {
   newAllowedToday,
   pausedMinutes,
   registerStudyDay,
+  completeSituation,
   resume,
   saveProgress,
   unlockedPacks,
@@ -19,8 +21,12 @@ import { Home } from './screens/Home';
 import { Result } from './screens/Result';
 import { Session, type Summary } from './screens/Session';
 import { Words } from './screens/Words';
+import { Chat } from './screens/Chat';
+import { Situations } from './screens/Situations';
 
-type Screen = { name: 'home' } | { name: 'session'; steps: Step[]; key: number } | { name: 'result'; summary: Summary } | { name: 'words' };
+type Screen = { name: 'home' } | { name: 'session'; steps: Step[]; key: number } | { name: 'result'; summary: Summary } | { name: 'words' }
+  | { name: 'situations' }
+  | { name: 'chat'; id: string; key: number };
 
 export function App() {
   const [progress, setProgress] = useState<Progress>(loadProgress);
@@ -41,6 +47,9 @@ export function App() {
     const newCount = Math.min(newAllowedToday(progress, now), unseen.length);
     return { unlocked, pool, due, unseen, newCount };
   }, [progress, screen.name]);
+
+  const seenWords = Object.keys(progress.cards).length;
+  const chatSituation = screen.name === 'chat' ? situations.find((s) => s.id === screen.id) : undefined;
 
   const start = () => {
     const fresh = plan.unseen.slice(0, Math.min(plan.newCount, DEFAULT_SESSION.maxNew));
@@ -78,7 +87,7 @@ export function App() {
       <main className="app">
         <AnimatePresence mode="wait">
           <motion.div
-            key={screen.name === 'session' ? `session-${screen.key}` : screen.name}
+            key={screen.name === 'session' ? `session-${screen.key}` : screen.name === 'chat' ? `chat-${screen.key}` : screen.name}
             className="screen"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -94,6 +103,8 @@ export function App() {
                 onStart={start}
                 onExtra={startExtra}
                 onWords={() => setScreen({ name: 'words' })}
+                onSituations={() => setScreen({ name: 'situations' })}
+                seenWords={seenWords}
                 onToggleAudio={() =>
                   setProgress((p) => ({ ...p, settings: { ...p.settings, autoAudio: !p.settings.autoAudio } }))
                 }
@@ -121,6 +132,23 @@ export function App() {
               />
             )}
             {screen.name === 'words' && <Words items={plan.pool} progress={progress} onBack={goHome} />}
+            {screen.name === 'situations' && (
+              <Situations
+                progress={progress}
+                seenWords={seenWords}
+                onOpen={(id) => setScreen({ name: 'chat', id, key: Date.now() })}
+                onBack={goHome}
+              />
+            )}
+            {screen.name === 'chat' && chatSituation && (
+              <Chat
+                situation={chatSituation}
+                progress={progress}
+                updateProgress={updateProgress}
+                onComplete={(stars) => setProgress((p) => completeSituation(p, chatSituation.id, stars, Date.now()))}
+                onBack={() => setScreen({ name: 'situations' })}
+              />
+            )}
           </motion.div>
         </AnimatePresence>
       </main>
