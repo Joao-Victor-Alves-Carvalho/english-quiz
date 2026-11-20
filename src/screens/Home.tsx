@@ -1,6 +1,7 @@
 import { motion } from 'motion/react';
 import type { NavTarget } from '../App';
 import { packs } from '../data/packs';
+import { scenes } from '../data/scenes';
 import { situations } from '../data/situations';
 import { stories } from '../data/stories';
 import type { Pack } from '../data/types';
@@ -61,10 +62,12 @@ export function Home(props: Props) {
   const unlockedIds = new Set(unlocked.map((p) => p.id));
   const openSituations = situations.filter((s) => isUnlocked(s, seenWords)).length;
   const openStories = stories.filter((s) => seenWords >= s.unlockAt).length;
+  const openScenes = scenes.filter((s) => isUnlocked(s, seenWords)).length;
   const focus = progress.settings.focusPack;
 
   const tiles: { id: string; emoji: string; title: string; sub: string; onClick: () => void; badge?: number }[] = [
     { id: 'situations', emoji: '💬', title: 'Situações reais', sub: `${openSituations} de ${situations.length} liberadas`, onClick: () => onNavigate('situations') },
+    { id: 'scenes', emoji: '🎬', title: 'Cenas de filme', sub: `${openScenes} de ${scenes.length} liberadas`, onClick: () => onNavigate('scenes') },
     { id: 'stories', emoji: '📖', title: 'Histórias', sub: `${openStories} de ${stories.length} liberadas`, onClick: () => onNavigate('stories') },
     { id: 'ear', emoji: '🎧', title: 'Ditado e shadowing', sub: 'Ouvir, escrever e repetir', onClick: () => onNavigate('ear') },
     {
@@ -75,8 +78,7 @@ export function Home(props: Props) {
       onClick: onMistakes,
       badge: mistakesCount,
     },
-    { id: 'progress', emoji: '📈', title: 'Progresso', sub: 'Gráfico e medalhas', onClick: () => onNavigate('progress') },
-    { id: 'words', emoji: '🔤', title: 'Palavras', sub: `${seenWords} vistas`, onClick: () => onNavigate('words') },
+    { id: 'progress', emoji: '📈', title: 'Progresso', sub: `Gráfico, medalhas e ${seenWords} palavras`, onClick: () => onNavigate('progress') },
   ];
 
   return (

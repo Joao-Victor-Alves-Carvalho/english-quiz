@@ -31,7 +31,7 @@ export function formatStudy(ms: number): string {
 
 /** Tempo minúsculo em Miller: "0,0098 segundo", "1,2 segundo", "3,5 minutos". */
 export function formatMiller(seconds: number): string {
-  if (seconds <= 0) return '0 segundo';
+  if (seconds <= 0) return '0 segundos';
   if (seconds < 1) return `${nf(seconds)} segundo`;
   if (seconds < 60) return `${nf(seconds)} ${seconds < 2 ? 'segundo' : 'segundos'}`;
   const min = seconds / 60;
@@ -40,7 +40,7 @@ export function formatMiller(seconds: number): string {
 
 /** Tempo na Terra: "18 dias", "4,2 meses", "1,4 ano", "12 anos". */
 export function formatEarth(years: number): string {
-  if (years <= 0) return '0 dia';
+  if (years <= 0) return '0 dias';
   const days = years * 365.25;
   if (days < 30) {
     const d = Math.max(1, Math.round(days));

@@ -2069,3 +2069,34 @@ input:focus-visible {
   background: rgba(255, 255, 255, 0.1);
   font-size: 13px;
 }
+
+/* Cenas de filme: narração e nome do personagem */
+.scene-note {
+  align-self: center;
+  max-width: 90%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 14px;
+  border-radius: 12px;
+  text-align: center;
+  font-size: 14px;
+  font-style: italic;
+  color: var(--text);
+  background: rgba(255, 201, 77, 0.08);
+  border: 1px dashed rgba(255, 201, 77, 0.35);
+}
+
+.scene-note small {
+  font-style: normal;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.bubble .who {
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--cyan);
+  letter-spacing: 0.02em;
+}

@@ -1,23 +1,33 @@
 import { motion } from 'motion/react';
-import { situations } from '../data/situations';
+import type { Situation } from '../lib/chat';
 import { IconArrowLeft } from '../components/Icons';
 import { isUnlocked, myTurns } from '../lib/chat';
 import type { Progress } from '../lib/progress';
 
-export function Situations({ progress, seenWords, onOpen, onBack }: { progress: Progress; seenWords: number; onOpen: (id: string) => void; onBack: () => void }) {
+interface Props {
+  list: Situation[];
+  title: string;
+  intro: string;
+  progress: Progress;
+  seenWords: number;
+  onOpen: (id: string) => void;
+  onBack: () => void;
+}
+
+export function Situations({ list, title, intro, progress, seenWords, onOpen, onBack }: Props) {
   return (
-    <section className="screen" aria-label="Situações reais">
+    <section className="screen" aria-label={title}>
       <div className="topbar">
         <button type="button" className="icon-btn" onClick={onBack} aria-label="Voltar">
           <IconArrowLeft />
         </button>
-        <h1 style={{ margin: 0, fontSize: 26, fontWeight: 900, letterSpacing: '-0.04em', flex: 1 }}>Situações reais</h1>
+        <h1 className="page-title">{title}</h1>
       </div>
       <p className="muted" style={{ margin: 0 }}>
-        Conversas do dia a dia, como no WhatsApp. Escolha ou monte suas respostas, ou fale no microfone. Novas situações liberam conforme você aprende palavras.
+        {intro}
       </p>
       <ul className="situation-list">
-        {situations.map((s, i) => {
+        {list.map((s, i) => {
           const open = isUnlocked(s, seenWords);
           const rec = progress.situations[s.id];
           return (

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Confetti } from '../components/Confetti';
 import { IconArrowLeft, IconMic, IconSpeaker } from '../components/Icons';
 import { matchSpoken } from '../lib/answer';
-import { checkBuild, explainBuild, myTurns, phrasesOf, stars as starsFor, tokens, type ChatOption, type Situation } from '../lib/chat';
+import { checkBuild, explainBuild, isMyTurn, myTurns, phrasesOf, stars as starsFor, tokens, type ChatOption, type Situation } from '../lib/chat';
 import { canRecognize, listen, type Listening } from '../lib/listen';
 import { capabilities, pause, pausedMinutes, type Progress } from '../lib/progress';
 import { shuffle } from '../lib/session';
@@ -12,7 +12,8 @@ import { canSpeak, speak, vibrate } from '../lib/speech';
 
 interface Bubble {
   id: number;
-  from: 'them' | 'me';
+  from: 'them' | 'me' | 'scene';
+  who?: string;
   text: string;
   pt: string;
 }
@@ -51,12 +52,12 @@ export function Chat({ situation, progress, updateProgress, onComplete, onBack }
   const soundsOn = progress.settings.sounds && audioOn;
   const step = situation.steps[pos];
   const total = myTurns(situation);
-  const answered = situation.steps.slice(0, pos).filter((s) => s.kind !== 'them').length;
+  const answered = situation.steps.slice(0, pos).filter(isMyTurn).length;
 
-  const push = useCallback((from: Bubble['from'], text: string, pt: string) => {
+  const push = useCallback((from: Bubble['from'], text: string, pt: string, who?: string) => {
     nextId.current += 1;
     const id = nextId.current;
-    setBubbles((b) => [...b, { id, from, text, pt }]);
+    setBubbles((b) => [...b, who ? { id, from, text, pt, who } : { id, from, text, pt }]);
   }, []);
 
   // Falas da outra pessoa: "digitando…" e depois a mensagem (com voz).
@@ -72,12 +73,19 @@ export function Chat({ situation, progress, updateProgress, onComplete, onBack }
       }
       return;
     }
+    if (step.kind === 'scene') {
+      const timer = setTimeout(() => {
+        push('scene', step.text, step.pt);
+        setPos((p) => p + 1);
+      }, 900);
+      return () => clearTimeout(timer);
+    }
     if (step.kind !== 'them') return;
     setTyping(true);
     const delay = 600 + Math.min(step.text.length * 18, 900);
     const timer = setTimeout(() => {
       setTyping(false);
-      push('them', step.text, step.pt);
+      push('them', step.text, step.pt, step.who);
       if (voiceOn) speak(step.text);
       setPos((p) => p + 1);
     }, delay);
@@ -135,7 +143,7 @@ export function Chat({ situation, progress, updateProgress, onComplete, onBack }
   };
 
   const startListening = () => {
-    if (!step || step.kind === 'them' || listening) return;
+    if (!isMyTurn(step) || listening) return;
     setMicMsg(null);
     setListening(true);
     const session = listen();
@@ -172,7 +180,7 @@ export function Chat({ situation, progress, updateProgress, onComplete, onBack }
       return next;
     });
 
-  const myTurn = step && step.kind !== 'them' && !typing;
+  const myTurn = isMyTurn(step) && !typing;
   const earned = starsFor(missed.size);
 
   return (
@@ -197,7 +205,21 @@ export function Chat({ situation, progress, updateProgress, onComplete, onBack }
         <p className="chat-scene">
           {situation.emoji} {situation.title}: {situation.subtitle}. Toque numa mensagem para ver a tradução.
         </p>
-        {bubbles.map((b) => (
+        {bubbles.map((b) =>
+          b.from === 'scene' ? (
+            <motion.button
+              key={b.id}
+              type="button"
+              className="scene-note"
+              onClick={() => toggleReveal(b.id)}
+              aria-expanded={revealed.has(b.id)}
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+            >
+              <span>🎬 {b.text}</span>
+              {revealed.has(b.id) && <small>{b.pt}</small>}
+            </motion.button>
+          ) : (
           <motion.div
             key={b.id}
             className={`bubble-row ${b.from}`}
@@ -206,6 +228,7 @@ export function Chat({ situation, progress, updateProgress, onComplete, onBack }
             transition={{ type: 'spring', stiffness: 380, damping: 28 }}
           >
             <button type="button" className={`bubble ${b.from}`} onClick={() => toggleReveal(b.id)} aria-expanded={revealed.has(b.id)}>
+              {b.who && <em className="who">{b.who}</em>}
               <span>{b.text}</span>
               {revealed.has(b.id) && <small>{b.pt}</small>}
             </button>
@@ -215,7 +238,8 @@ export function Chat({ situation, progress, updateProgress, onComplete, onBack }
               </button>
             )}
           </motion.div>
-        ))}
+          ),
+        )}
         <AnimatePresence>
           {typing && (
             <motion.div className="bubble-row them" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>

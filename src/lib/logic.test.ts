@@ -343,15 +343,21 @@ describe('histórico', () => {
 
 describe('situações (chat)', () => {
   it('roteiros válidos: ids únicos, opções com resposta certa e explicação nas erradas', async () => {
-    const { situations } = await import('../data/situations');
+    const { situations: real } = await import('../data/situations');
+    const { scenes } = await import('../data/scenes');
+    const situations = [...real, ...scenes];
+    expect(scenes.length).toBe(4);
+    expect(scenes[0]?.unlockAt).toBe(0);
+    for (let i = 1; i < scenes.length; i++) expect(scenes[i]!.unlockAt).toBeGreaterThanOrEqual(scenes[i - 1]!.unlockAt);
     const { tokens: toks } = await import('./chat');
     expect(new Set(situations.map((s) => s.id)).size).toBe(situations.length);
-    expect(situations[0]?.unlockAt).toBe(0);
-    for (let i = 1; i < situations.length; i++) {
-      expect(situations[i]!.unlockAt).toBeGreaterThanOrEqual(situations[i - 1]!.unlockAt);
+    expect(real[0]?.unlockAt).toBe(0);
+    for (let i = 1; i < real.length; i++) {
+      expect(real[i]!.unlockAt).toBeGreaterThanOrEqual(real[i - 1]!.unlockAt);
     }
     for (const s of situations) {
       expect(s.steps.at(-1)?.kind, s.id).toBeDefined();
+      expect(s.steps.some((st) => st.kind === 'choose' || st.kind === 'build'), s.id).toBe(true);
       for (const step of s.steps) {
         if (step.kind === 'choose') {
           expect(step.options.length, `${s.id}: ${step.goal}`).toBeGreaterThanOrEqual(2);
@@ -396,6 +402,16 @@ describe('situações (chat)', () => {
     p = completeSituation(p, 'hotel', 1, NOW);
     expect(p.situations.hotel).toEqual({ done: 3, best: 3 });
     expect(p.streak).toBe(1);
+  });
+
+  it('narração e falas de outros personagens não contam como turno seu', async () => {
+    const { myTurns, isMyTurn } = await import('./chat');
+    const { scenes } = await import('../data/scenes');
+    const orion = scenes[0]!;
+    const mine = orion.steps.filter((st) => st.kind === 'choose' || st.kind === 'build').length;
+    expect(myTurns(orion)).toBe(mine);
+    expect(isMyTurn({ kind: 'scene', text: 'x', pt: 'x' })).toBe(false);
+    expect(orion.steps.some((st) => st.kind === 'them' && st.who)).toBe(true);
   });
 });
 
