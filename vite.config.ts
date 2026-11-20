@@ -11,8 +11,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icon.svg', 'apple-touch-icon.png'],
       manifest: {
-        name: 'Loop — English',
-        short_name: 'Loop',
+        name: 'Miller Minute',
+        short_name: 'Miller Minute',
         description: 'Quiz para aprender inglês com repetição espaçada.',
         lang: 'pt-BR',
         start_url: '.',

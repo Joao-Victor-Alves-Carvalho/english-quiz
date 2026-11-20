@@ -80,6 +80,7 @@ export function registerNewItems(progress: Progress, now: number, count: number)
   return { ...progress, newToday: { day: today, count: base + count } };
 }
 
+// Chave antiga (nome provisório "Loop"): não mudar, senão o progresso salvo se perde.
 const STORAGE_KEY = 'loop-english:v1';
 
 export function loadProgress(): Progress {

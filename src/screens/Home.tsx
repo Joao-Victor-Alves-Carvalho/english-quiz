@@ -36,8 +36,9 @@ export function Home({ progress, dueCount, newCount, unlockedCount, onStart, onE
   return (
     <section className="screen" aria-label="Início">
       <motion.header className="row" {...enter(0)}>
+        <img className="logo-mark" src="./icon.svg" alt="" width={44} height={44} />
         <h1 className="logo">
-          loop<span>.</span>
+          miller <span>minute.</span>
         </h1>
         <span className="spacer" />
         <span className="pill" title="Dias seguidos estudando">
