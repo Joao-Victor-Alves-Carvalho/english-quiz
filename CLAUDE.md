@@ -1,4 +1,4 @@
-# Loop — English: instruções para o Claude
+# Miller Minute: instruções para o Claude
 
 App de quiz pessoal do João para aprender inglês (nível básico). PWA em React + Vite +
 TypeScript strict, sem backend. Plano e métodos em `docs/PLANO.md`.

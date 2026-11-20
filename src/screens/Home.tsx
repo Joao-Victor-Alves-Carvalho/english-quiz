@@ -37,7 +37,7 @@ export function Home({ progress, dueCount, newCount, unlockedCount, onStart, onE
     <section className="screen" aria-label="Início">
       <motion.header className="row" {...enter(0)}>
         <h1 className="logo">
-          loop<span>.</span>
+          miller <span>minute.</span>
         </h1>
         <span className="spacer" />
         <span className="pill" title="Dias seguidos estudando">

@@ -1,8 +1,8 @@
-# Loop — English
+# Miller Minute
 
 Aplicativo de quiz para aprender inglês com repetição: no começo para decorar e, com o tempo,
 com repetição espaçada e prática de recuperação. Funciona como app instalável (PWA) no Android
-e no iPhone, offline, sem conta e sem servidor. O nome "Loop" e o visual são provisórios.
+e no iPhone, offline, sem conta e sem servidor. O nome é uma homenagem ao filme Interestelar: no planeta de Miller, uma hora vale sete anos; aqui, poucos minutos por dia valem anos de inglês. O visual ainda é provisório.
 
 Plano, métodos e regras do agendamento: [docs/PLANO.md](docs/PLANO.md).
 
