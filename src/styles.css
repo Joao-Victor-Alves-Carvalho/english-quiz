@@ -811,3 +811,17 @@ input:focus-visible {
     animation: none;
   }
 }
+
+.logo-mark {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  flex: none;
+  box-shadow: 0 6px 24px -6px rgba(139, 92, 246, 0.6);
+}
+
+@media (max-width: 380px) {
+  .logo {
+    font-size: 28px;
+  }
+}
