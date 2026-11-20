@@ -4,6 +4,8 @@ Aplicativo de quiz para aprender inglês com repetição: no começo para decora
 com repetição espaçada e prática de recuperação. Funciona como app instalável (PWA) no Android
 e no iPhone, offline, sem conta e sem servidor. O nome é uma homenagem ao filme Interestelar: no planeta de Miller, uma hora vale sete anos; aqui, poucos minutos por dia valem anos de inglês. O visual ainda é provisório.
 
+**App publicado:** https://joao-victor-alves-carvalho.github.io/miller-minute/
+
 Plano, métodos e regras do agendamento: [docs/PLANO.md](docs/PLANO.md).
 
 ## Rodar no computador
@@ -24,7 +26,7 @@ O app precisa estar publicado num endereço HTTPS. Pelo GitHub Pages:
 
 1. No plano gratuito, o Pages exige repositório **público** (Settings → General → Change visibility).
 2. Settings → Pages → Source: **GitHub Actions**.
-3. Aba Actions → **Deploy** → Run workflow. O endereço aparece no fim da execução.
+3. Aba Actions → **Deploy** → Run workflow. O app fica em https://joao-victor-alves-carvalho.github.io/miller-minute/.
 4. **Android (Chrome)**: abrir o endereço → menu ⋮ → **Instalar app**.
    **iPhone (Safari)**: abrir o endereço → Compartilhar → **Adicionar à Tela de Início**.
 
