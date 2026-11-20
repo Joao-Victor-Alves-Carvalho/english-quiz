@@ -17,6 +17,7 @@ import {
 } from './lib/progress';
 import { buildSession, DEFAULT_SESSION, dueItems, shuffle, unseenItems, type Step } from './lib/session';
 import { modeFor } from './lib/modes';
+import { playCorrect } from './lib/sfx';
 import { Home } from './screens/Home';
 import { Result } from './screens/Result';
 import { Session, type Summary } from './screens/Session';
@@ -108,7 +109,11 @@ export function App() {
                 onToggleAudio={() =>
                   setProgress((p) => ({ ...p, settings: { ...p.settings, autoAudio: !p.settings.autoAudio } }))
                 }
-                onToggleSounds={() => setProgress((p) => ({ ...p, settings: { ...p.settings, sounds: !p.settings.sounds } }))}
+                onToggleSounds={() => {
+                  // Ao ligar, toca uma amostra (dentro do toque, o que também destrava o áudio no iPhone).
+                  if (!progress.settings.sounds) playCorrect();
+                  setProgress((p) => ({ ...p, settings: { ...p.settings, sounds: !p.settings.sounds } }));
+                }}
                 onResume={(kind) => setProgress((p) => resume(p, kind))}
               />
             )}
