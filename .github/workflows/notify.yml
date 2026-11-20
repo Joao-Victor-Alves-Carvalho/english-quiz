@@ -1,0 +1,35 @@
+# Notificações diárias do Miller Minute: 12h e 21h (horário de Brasília, UTC-3).
+# O GitHub pode atrasar tarefas agendadas em alguns minutos; por isso o horário é um pouco antes.
+# Também dá para disparar na mão (aba Actions → Notificações → Run workflow) para testar.
+name: Notificações
+
+on:
+  schedule:
+    - cron: '50 14 * * *' # 11h50 em Brasília → chega por volta do meio-dia
+    - cron: '50 23 * * *' # 20h50 em Brasília → chega por volta das 21h
+  workflow_dispatch:
+    inputs:
+      turno:
+        description: 'Turno da mensagem'
+        type: choice
+        options: [auto, midday, night]
+        default: auto
+
+permissions:
+  contents: read
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Enviar notificação
+        env:
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          PUSH_SUBSCRIPTION: ${{ secrets.PUSH_SUBSCRIPTION }}
+        run: node --experimental-strip-types scripts/send-push.mjs ${{ inputs.turno == 'midday' && 'midday' || inputs.turno == 'night' && 'night' || '' }}

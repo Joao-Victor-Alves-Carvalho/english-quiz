@@ -36,6 +36,19 @@ O progresso fica salvo no aparelho; atualizações do app chegam sozinhas e não
 sozinho em alguns segundos (às vezes é preciso fechar e abrir de novo). A versão aparece no rodapé
 da tela inicial.
 
+**Notificações (12h e 21h)**: uma tarefa agendada do GitHub Actions
+(`.github/workflows/notify.yml`) envia um lembrete por volta do meio-dia e das 21h (Brasília).
+Configuração única:
+1. No app instalado: Ajustes → Notificações → **Ativar notificações** → **Copiar código de inscrição**.
+2. No GitHub: Settings → Secrets and variables → Actions → New repository secret:
+   - `PUSH_SUBSCRIPTION`: o código copiado (para vários aparelhos, use uma lista JSON `[{...}, {...}]`);
+   - `VAPID_PRIVATE_KEY`: a chave privada VAPID (a pública está em `src/lib/push.ts`).
+3. Para testar: aba Actions → **Notificações** → Run workflow.
+
+O GitHub pode atrasar tarefas agendadas em alguns minutos e pausa as agendadas de repositórios sem
+atividade por 60 dias (basta reativar na aba Actions). No iPhone, só funciona com o app instalado
+na Tela de Início (iOS 16.4+). As mensagens ficam em `src/lib/pushMessages.ts`.
+
 **Microfone**: no Android (Chrome), o reconhecimento de voz usa o serviço do Google e precisa de
 internet. Se o navegador não tiver reconhecimento de voz, as perguntas de falar não aparecem.
 

@@ -15,7 +15,9 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['icon.svg', 'apple-touch-icon.png'],
+      includeAssets: ['icon.svg', 'apple-touch-icon.png', 'push-sw.js'],
+      // Recebe as notificações push (ver public/push-sw.js).
+      workbox: { importScripts: ['push-sw.js'] },
       manifest: {
         name: 'Miller Minute',
         short_name: 'Miller Minute',

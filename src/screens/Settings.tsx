@@ -1,8 +1,9 @@
-import { useRef, useState, type ChangeEvent, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type Dispatch, type SetStateAction } from 'react';
 import { IconArrowLeft } from '../components/Icons';
 import { backupJson, decodeBackup, describe, encodeBackup } from '../lib/backup';
 import { buildReminderIcs, parseTime } from '../lib/ics';
 import type { Progress, Settings as SettingsT } from '../lib/progress';
+import { disablePush, enablePush, pushStatus, testNotification, type PushStatus } from '../lib/push';
 import { playCorrect } from '../lib/sfx';
 
 const APP_URL = 'https://joao-victor-alves-carvalho.github.io/miller-minute/';
@@ -94,6 +95,21 @@ export function Settings({ progress, setProgress, onBack }: { progress: Progress
 
   const time = parseTime(s.reminder) ? s.reminder : '20:00';
 
+  const [push, setPush] = useState<PushStatus | null>(null);
+  const [pushBusy, setPushBusy] = useState(false);
+  useEffect(() => {
+    void pushStatus().then(setPush);
+  }, []);
+
+  const copyPushCode = async (code: string) => {
+    try {
+      await navigator.clipboard.writeText(code);
+      flash('Código de inscrição copiado! Agora cole no segredo PUSH_SUBSCRIPTION do GitHub.');
+    } catch {
+      flash('Não consegui copiar sozinho: selecione o código na caixa e copie manualmente.');
+    }
+  };
+
   return (
     <section className="screen" aria-label="Ajustes">
       <div className="topbar">
@@ -134,7 +150,81 @@ export function Settings({ progress, setProgress, onBack }: { progress: Progress
       </div>
 
       <div className="settings-card glass">
-        <p className="eyebrow">Lembrete diário</p>
+        <p className="eyebrow">Notificações (12h e 21h)</p>
+        {push === null && <p className="muted small">Verificando…</p>}
+        {push?.kind === 'needs-install' && (
+          <p className="muted small">
+            No iPhone, as notificações só funcionam com o app instalado: no Safari, toque em Compartilhar → <strong>Adicionar à Tela de Início</strong>, abra o Miller Minute pelo ícone e volte aqui.
+          </p>
+        )}
+        {push?.kind === 'unsupported' && <p className="muted small">{push.reason}</p>}
+        {push?.kind === 'denied' && (
+          <p className="muted small">
+            As notificações estão bloqueadas para o app. Libere nas configurações do celular (Notificações → Miller Minute, ou nas permissões do site no Chrome) e volte aqui.
+          </p>
+        )}
+        {push?.kind === 'off' && (
+          <>
+            <p className="muted small">
+              Receba um lembrete por volta do meio-dia e outro às 21h, com mensagens temáticas de Interestelar. As notificações são enviadas por uma tarefa agendada no GitHub; a configuração é feita uma vez só.
+            </p>
+            <button
+              type="button"
+              className="btn btn-primary btn-block"
+              disabled={pushBusy}
+              onClick={async () => {
+                setPushBusy(true);
+                try {
+                  setPush(await enablePush());
+                } catch {
+                  flash('Não consegui ativar agora. Confira a internet e tente de novo.');
+                } finally {
+                  setPushBusy(false);
+                }
+              }}
+            >
+              🔔 Ativar notificações
+            </button>
+          </>
+        )}
+        {push?.kind === 'on' && (
+          <>
+            <p className="muted small">✅ Este aparelho está inscrito. Para as notificações chegarem, o código abaixo precisa estar salvo no GitHub (uma vez só):</p>
+            <ol className="steps">
+              <li>Toque em <strong>Copiar código de inscrição</strong>.</li>
+              <li>
+                No GitHub (pelo navegador), abra o repositório <strong>miller-minute</strong> → <strong>Settings</strong> → <strong>Secrets and variables</strong> → <strong>Actions</strong>.
+              </li>
+              <li>
+                Toque em <strong>New repository secret</strong>, nome <code>PUSH_SUBSCRIPTION</code>, cole o código e salve.
+              </li>
+              <li>
+                Crie também o segredo <code>VAPID_PRIVATE_KEY</code> com a chave que o Claude te passou (só na primeira vez).
+              </li>
+            </ol>
+            <textarea className="type-input import-box" readOnly value={push.code} aria-label="Código de inscrição" onFocus={(e) => e.currentTarget.select()} />
+            <div className="row" style={{ flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-primary" style={{ flex: 1 }} onClick={() => copyPushCode(push.code)}>
+                📋 Copiar código de inscrição
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ flex: 1 }}
+                onClick={async () => flash((await testNotification()) ? 'Notificação de teste enviada para este aparelho.' : 'Não consegui mostrar o teste.')}
+              >
+                Testar agora
+              </button>
+            </div>
+            <button type="button" className="link-btn" style={{ alignSelf: 'flex-start' }} onClick={async () => setPush(await disablePush())}>
+              Desativar notificações neste aparelho
+            </button>
+          </>
+        )}
+      </div>
+
+      <div className="settings-card glass">
+        <p className="eyebrow">Lembrete na agenda</p>
         <p className="muted small">
           Cria um evento que se repete todo dia na agenda do celular, com alarme e o link do app. Para mudar o horário depois, edite ou apague o evento na própria agenda.
         </p>

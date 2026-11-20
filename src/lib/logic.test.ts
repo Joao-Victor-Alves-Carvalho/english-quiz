@@ -503,3 +503,27 @@ describe('caderno de erros', () => {
     expect(mistakeItems(items, cards, NOW).map((i) => i.id)).toEqual([items[2]!.id, items[0]!.id]);
   });
 });
+
+describe('notificações', () => {
+  it('escolhe o turno pelo horário de Brasília e varia a mensagem por dia', async () => {
+    const { slotFor, pickMessage, MESSAGES, dayOfYear } = await import('./pushMessages');
+    expect(slotFor(new Date(Date.UTC(2026, 10, 20, 14, 50)))).toBe('midday'); // 11h50 BRT
+    expect(slotFor(new Date(Date.UTC(2026, 10, 20, 23, 50)))).toBe('night'); // 20h50 BRT
+    expect(slotFor(new Date(Date.UTC(2026, 10, 21, 0, 5)))).toBe('night'); // 21h05 BRT
+    const d1 = new Date(Date.UTC(2026, 10, 20, 15));
+    const d2 = new Date(Date.UTC(2026, 10, 21, 15));
+    expect(dayOfYear(d2)).toBe(dayOfYear(d1) + 1);
+    expect(pickMessage('midday', d1)).not.toEqual(pickMessage('midday', d2));
+    for (const list of Object.values(MESSAGES)) {
+      expect(list.length).toBeGreaterThanOrEqual(7);
+      for (const m of list) expect(m.title.length + m.body.length).toBeLessThan(160);
+    }
+  });
+
+  it('converte a chave pública VAPID para bytes (65 bytes, ponto não comprimido)', async () => {
+    const { base64UrlToBytes, VAPID_PUBLIC_KEY } = await import('./push');
+    const bytes = base64UrlToBytes(VAPID_PUBLIC_KEY);
+    expect(bytes.length).toBe(65);
+    expect(bytes[0]).toBe(4);
+  });
+});
