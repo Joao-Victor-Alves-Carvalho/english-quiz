@@ -13,7 +13,12 @@ import {
   unlockedPacks,
 } from './progress';
 import { buildSession, dueItems, scheduleRetry, unseenItems, type Step } from './session';
-import { DAY, grade, isMastered, MAX_BOX, modeForBox, newCard, startOfDay, type CardState } from './srs';
+import { DAY, grade, isMastered, MAX_BOX, newCard, startOfDay, type CardState } from './srs';
+import { answerField, clozeParts, modeFor, resolveMode } from './modes';
+import { matchSpoken } from './answer';
+import { explain } from './explain';
+import { notes } from '../data/notes';
+import { capabilities, pause, pausedMinutes, recordAnswer, resume } from './progress';
 
 /** Gerador pseudoaleatório determinístico para os testes. */
 function seeded(seed = 42): () => number {
@@ -70,9 +75,13 @@ describe('Leitner', () => {
   });
 
   it('o tipo de pergunta evolui com a caixa', () => {
-    expect(modeForBox(0)).toBe('en-pt-choice');
-    expect(modeForBox(2)).toBe('pt-en-choice');
-    expect(modeForBox(4)).toBe('pt-en-type');
+    const item = pack1.items.find((i) => i.en === 'remember')!;
+    expect(modeFor(0, 0, item)).toBe('en-pt-choice');
+    expect(modeFor(0, 2, item)).toBe('listen-choice');
+    expect(modeFor(2, 0, item)).toBe('pt-en-choice');
+    expect(modeFor(2, 1, item)).toBe('cloze-choice');
+    expect(modeFor(2, 3, item)).toBe('speak');
+    expect(modeFor(4, 0, item)).toBe('pt-en-type');
   });
 });
 
@@ -101,7 +110,7 @@ describe('sessão', () => {
     const practice = steps.filter((s) => s.kind === 'quiz' && !s.graded);
     expect(practice.map((s) => s.itemId).sort()).toEqual(fresh.map((f) => f.id).sort());
     const reviewStep = steps.find((s) => s.itemId === reviews[0]?.id);
-    expect(reviewStep?.mode).toBe('pt-en-choice');
+    expect(['pt-en-choice', 'cloze-choice', 'listen-choice', 'speak']).toContain(reviewStep?.mode);
   });
 
   it('respeita os limites de revisões e de novos', () => {
@@ -193,5 +202,94 @@ describe('progresso', () => {
     expect(unlockedPacks([a, b], cards)).toHaveLength(1);
     for (let i = 0; i < 8; i++) cards[`a:${i}`] = { ...newCard(NOW), box: 4 };
     expect(unlockedPacks([a, b], cards)).toHaveLength(2);
+  });
+});
+
+describe('tipos de pergunta', () => {
+  const remember = pack1.items.find((i) => i.en === 'remember')!;
+  const hello = pack1.items.find((i) => i.en === 'Hello')!;
+
+  it('monta a lacuna a partir do exemplo', () => {
+    expect(clozeParts(remember)).toEqual({ before: 'I ', answer: 'remember', after: ' you.' });
+    expect(clozeParts(hello)).toBeNull(); // frase pronta não vira lacuna
+    const won = pack1.items.find((i) => i.en === 'win')!; // exemplo usa "won", não serve
+    expect(clozeParts(won)).toBeNull();
+    expect(modeFor(2, 1, won)).toBe('pt-en-choice');
+    expect(modeFor(4, 1, won)).toBe('pt-en-type');
+  });
+
+  it('boa parte do pacote tem lacuna possível', () => {
+    const ok = pack1.items.filter((i) => clozeParts(i)).length;
+    expect(ok).toBeGreaterThan(200);
+  });
+
+  it('esconde áudio e microfone quando pausados', () => {
+    expect(resolveMode('listen-choice', remember, { audio: false, mic: true })).toBe('en-pt-choice');
+    expect(resolveMode('speak', remember, { audio: true, mic: false })).toBe('pt-en-choice');
+    expect(resolveMode('speak', remember, { audio: true, mic: true })).toBe('speak');
+    expect(answerField('listen-choice')).toBe('pt');
+    expect(answerField('cloze-choice')).toBe('en');
+  });
+
+  it('pausa por 15 minutos e reativa', () => {
+    const support = { speech: true, recognition: true };
+    let p = pause(emptyProgress(), 'mic', NOW);
+    expect(pausedMinutes(p, 'mic', NOW)).toBe(15);
+    expect(capabilities(p, NOW + 14 * 60_000, support)).toEqual({ audio: true, mic: false });
+    expect(capabilities(p, NOW + 15 * 60_000, support)).toEqual({ audio: true, mic: true });
+    p = resume(p, 'mic');
+    expect(capabilities(p, NOW, support).mic).toBe(true);
+    expect(capabilities(emptyProgress(), NOW, { speech: false, recognition: false })).toEqual({ audio: false, mic: false });
+  });
+});
+
+describe('resposta falada', () => {
+  it('aceita igual, com pontuação, número em dígito ou dentro da frase', () => {
+    expect(matchSpoken(['Remember'], 'remember')).toBe(true);
+    expect(matchSpoken(['i am fine thanks'], "I'm fine, thanks")).toBe(true); // sem contração também vale
+    expect(matchSpoken(["I'm fine, thanks."], "I'm fine, thanks")).toBe(true);
+    expect(matchSpoken(['2'], 'two')).toBe(true);
+    expect(matchSpoken(['the kitchen'], 'kitchen')).toBe(true);
+    expect(matchSpoken(['remembers'], 'remember')).toBe(true);
+    expect(matchSpoken(['dog', 'cat'], 'cat')).toBe(true);
+    expect(matchSpoken(['dog'], 'cat')).toBe(false);
+    expect(matchSpoken([], 'cat')).toBe(false);
+  });
+});
+
+describe('explicação do erro', () => {
+  const pool = pack1.items;
+  const make = pool.find((i) => i.en === 'make')!;
+  const doItem = pool.find((i) => i.en === 'do')!;
+
+  it('diz a resposta certa, o que foi marcado e a dica', () => {
+    const lines = explain({ item: make, mode: 'pt-en-choice', chosen: 'do', pool, notes });
+    expect(lines[0]).toContain('"make"');
+    expect(lines.some((l) => l.includes('"do" significa'))).toBe(true);
+    expect(lines.some((l) => l.includes('criar ou produzir'))).toBe(true);
+  });
+
+  it('explica a escolha em português e a lacuna', () => {
+    const lines = explain({ item: doItem, mode: 'en-pt-choice', chosen: make.pt, pool, notes });
+    expect(lines.some((l) => l.includes('tradução de "make"'))).toBe(true);
+    const remember = pool.find((i) => i.en === 'remember')!;
+    const cloze = explain({ item: remember, mode: 'cloze-choice', chosen: 'forget', pool, notes });
+    expect(cloze.some((l) => l.includes('Eu me lembro de você'))).toBe(true);
+  });
+
+  it('todas as dicas apontam para palavras do pacote', () => {
+    const ens = new Set(pool.map((i) => i.en.toLowerCase()));
+    for (const key of Object.keys(notes)) expect(ens.has(key), key).toBe(true);
+  });
+});
+
+describe('histórico', () => {
+  it('soma respostas no dia', () => {
+    let p = recordAnswer(emptyProgress(), NOW, true);
+    p = recordAnswer(p, NOW, false);
+    p = registerNewItems(p, NOW, 2);
+    const day = Object.values(p.history)[0];
+    expect(day).toEqual({ answers: 2, correct: 1, newItems: 2 });
+    expect(p.totalAnswers).toBe(2);
   });
 });

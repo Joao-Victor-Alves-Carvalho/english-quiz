@@ -1,7 +1,7 @@
 import { motion } from 'motion/react';
 import { packs } from '../data/packs';
-import { IconFlame, IconList } from '../components/Icons';
-import { currentStreak, masteredRatio, UNLOCK_RATIO, type Progress } from '../lib/progress';
+import { IconFlame, IconList, IconMic, IconSpeaker } from '../components/Icons';
+import { currentStreak, masteredRatio, pausedMinutes, UNLOCK_RATIO, type PauseKind, type Progress } from '../lib/progress';
 import { MASTERED_BOX } from '../lib/srs';
 
 interface Props {
@@ -13,6 +13,8 @@ interface Props {
   onExtra: () => void;
   onWords: () => void;
   onToggleAudio: () => void;
+  onToggleSounds: () => void;
+  onResume: (kind: PauseKind) => void;
 }
 
 function greeting(): string {
@@ -28,8 +30,12 @@ const enter = (i: number) => ({
   transition: { delay: 0.06 * i, type: 'spring' as const, stiffness: 220, damping: 24 },
 });
 
-export function Home({ progress, dueCount, newCount, unlockedCount, onStart, onExtra, onWords, onToggleAudio }: Props) {
-  const streak = currentStreak(progress, Date.now());
+export function Home(props: Props) {
+  const { progress, dueCount, newCount, unlockedCount, onStart, onExtra, onWords, onToggleAudio, onToggleSounds, onResume } = props;
+  const now = Date.now();
+  const streak = currentStreak(progress, now);
+  const micPaused = pausedMinutes(progress, 'mic', now);
+  const audioPaused = pausedMinutes(progress, 'audio', now);
   const hasWork = dueCount + newCount > 0;
   const seenAny = Object.keys(progress.cards).length > 0;
 
@@ -129,13 +135,31 @@ export function Home({ progress, dueCount, newCount, unlockedCount, onStart, onE
         );
       })}
 
-      <motion.div className="row" style={{ marginTop: 'auto', paddingTop: 8 }} {...enter(4)}>
-        <button type="button" className="btn btn-ghost" onClick={onWords} style={{ flex: 1 }}>
-          <IconList width={20} height={20} /> Palavras
-        </button>
-        <button type="button" className="btn btn-ghost switch" role="switch" aria-checked={progress.settings.autoAudio} onClick={onToggleAudio}>
-          Áudio <span className="track" aria-hidden="true" />
-        </button>
+      <motion.div style={{ marginTop: 'auto', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 10 }} {...enter(4)}>
+        {micPaused > 0 && (
+          <div className="pause-chip">
+            <IconMic /> Perguntas de fala pausadas · {micPaused} min
+            <button type="button" onClick={() => onResume('mic')}>Reativar</button>
+          </div>
+        )}
+        {audioPaused > 0 && (
+          <div className="pause-chip">
+            <IconSpeaker /> Áudio pausado · {audioPaused} min
+            <button type="button" onClick={() => onResume('audio')}>Reativar</button>
+          </div>
+        )}
+        <div className="settings-row">
+          <button type="button" className="btn btn-ghost" onClick={onWords}>
+            <IconList width={18} height={18} /> Palavras
+          </button>
+          <button type="button" className="btn btn-ghost switch" role="switch" aria-checked={progress.settings.autoAudio} onClick={onToggleAudio}>
+            Voz <span className="track" aria-hidden="true" />
+          </button>
+          <button type="button" className="btn btn-ghost switch" role="switch" aria-checked={progress.settings.sounds} onClick={onToggleSounds}>
+            Sons <span className="track" aria-hidden="true" />
+          </button>
+        </div>
+        <p className="version">Miller Minute v{__APP_VERSION__}</p>
       </motion.div>
     </section>
   );

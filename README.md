@@ -30,6 +30,13 @@ O app precisa estar publicado num endereço HTTPS. Pelo GitHub Pages:
 
 O progresso fica salvo no aparelho; atualizações do app chegam sozinhas e não apagam o progresso.
 
+**Como atualizar**: abra o app com internet. Ele baixa a versão nova em segundo plano e recarrega
+sozinho em alguns segundos (às vezes é preciso fechar e abrir de novo). A versão aparece no rodapé
+da tela inicial.
+
+**Microfone**: no Android (Chrome), o reconhecimento de voz usa o serviço do Google e precisa de
+internet. Se o navegador não tiver reconhecimento de voz, as perguntas de falar não aparecem.
+
 ## Estrutura
 
 - `src/data/` — pacotes de conteúdo (`pack1.ts`: 387 palavras e frases essenciais).

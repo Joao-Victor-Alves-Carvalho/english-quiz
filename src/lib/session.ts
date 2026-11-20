@@ -1,5 +1,6 @@
 import type { Item } from '../data/types';
-import { isDue, modeForBox, type CardState, type Mode } from './srs';
+import { modeFor, type Mode } from './modes';
+import { isDue, type CardState } from './srs';
 
 export type Rng = () => number;
 
@@ -78,7 +79,8 @@ export function buildSession(
     itemId: item.id,
     kind: 'quiz',
     graded: true,
-    mode: modeForBox(cards[item.id]?.box ?? 0),
+    // Intercala tipos de pergunta conforme a posição na sessão.
+    mode: modeFor(cards[item.id]?.box ?? 0, out.length, item),
   });
 
   while (reviewQueue.length > 0 || newQueue.length > 0 || pending.length > 0) {

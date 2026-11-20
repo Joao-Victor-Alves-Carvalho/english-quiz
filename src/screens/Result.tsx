@@ -2,6 +2,7 @@ import { animate, motion, useMotionValue, useTransform } from 'motion/react';
 import { useEffect, useState } from 'react';
 import { Confetti } from '../components/Confetti';
 import { IconFlame } from '../components/Icons';
+import { playComplete } from '../lib/sfx';
 import type { Summary } from './Session';
 
 function headline(pct: number): string {
@@ -11,11 +12,16 @@ function headline(pct: number): string {
   return 'Faz parte!';
 }
 
-export function Result({ summary, streak, onDone }: { summary: Summary; streak: number; onDone: () => void }) {
+export function Result({ summary, streak, sound, onDone }: { summary: Summary; streak: number; sound: boolean; onDone: () => void }) {
   const pct = summary.answered > 0 ? Math.round((summary.correct / summary.answered) * 100) : 0;
   const value = useMotionValue(0);
   const dash = useTransform(value, (v) => `${(v / 100) * 565} 565`);
   const [shown, setShown] = useState(0);
+
+  useEffect(() => {
+    if (sound) playComplete();
+    // Toca uma vez, ao abrir o resultado.
+  }, []);
 
   useEffect(() => {
     const controls = animate(value, pct, { duration: 1.2, ease: [0.2, 0.8, 0.2, 1], onUpdate: (v) => setShown(Math.round(v)) });

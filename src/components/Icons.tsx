@@ -39,3 +39,9 @@ export const IconBolt = (p: P) => (
     <path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z" />
   </svg>
 );
+export const IconMic = (p: P) => (
+  <svg {...base} {...p}>
+    <rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor" stroke="none" />
+    <path d="M5.5 11a6.5 6.5 0 0013 0M12 17.5V21M8.5 21h7" />
+  </svg>
+);

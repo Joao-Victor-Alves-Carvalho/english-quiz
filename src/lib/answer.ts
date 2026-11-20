@@ -40,3 +40,32 @@ export function checkTyped(input: string, expected: string): TypedResult {
   if (b.length >= 5 && levenshtein(a, b) <= 1) return 'typo';
   return 'wrong';
 }
+
+const NUMBER_WORDS: Record<string, string> = {
+  '0': 'zero', '1': 'one', '2': 'two', '3': 'three', '4': 'four', '5': 'five', '6': 'six',
+  '7': 'seven', '8': 'eight', '9': 'nine', '10': 'ten', '20': 'twenty', '100': 'hundred', '1000': 'thousand',
+};
+
+/** Normaliza o que o reconhecimento de voz devolveu (ele costuma escrever números como dígitos). */
+export function normalizeSpoken(text: string): string {
+  return normalize(text)
+    .split(' ')
+    .map((token) => NUMBER_WORDS[token] ?? token)
+    .join(' ');
+}
+
+/**
+ * Confere a fala: aceita qualquer alternativa do reconhecimento que seja igual,
+ * quase igual (pequena diferença de pronúncia/transcrição) ou que contenha a resposta.
+ */
+export function matchSpoken(alternatives: readonly string[], expected: string): boolean {
+  const target = normalizeSpoken(expected);
+  if (!target) return false;
+  const tolerance = target.length >= 4 ? Math.max(1, Math.floor(target.length * 0.15)) : 0;
+  return alternatives.some((alt) => {
+    const said = normalizeSpoken(alt);
+    if (!said) return false;
+    if (said === target || ` ${said} `.includes(` ${target} `)) return true;
+    return levenshtein(said, target) <= tolerance;
+  });
+}

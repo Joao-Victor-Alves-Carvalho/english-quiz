@@ -14,8 +14,6 @@ export const MAX_BOX = INTERVAL_DAYS.length - 1;
 /** A partir desta caixa (intervalo de 7+ dias) o item conta como "dominado". */
 export const MASTERED_BOX = 4;
 
-export type Mode = 'en-pt-choice' | 'pt-en-choice' | 'pt-en-type';
-
 export interface CardState {
   box: number;
   /** Momento (ms) em que o item volta a ficar pendente. */
@@ -27,12 +25,6 @@ export interface CardState {
 
 export function newCard(now: number): CardState {
   return { box: 0, due: now, correct: 0, wrong: 0, lastSeen: now };
-}
-
-export function modeForBox(box: number): Mode {
-  if (box <= 1) return 'en-pt-choice';
-  if (box <= 3) return 'pt-en-choice';
-  return 'pt-en-type';
 }
 
 export function grade(card: CardState, isCorrect: boolean, now: number): CardState {
