@@ -1,17 +1,30 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { notes } from '../data/notes';
 import { itemsById } from '../data/packs';
 import type { Item } from '../data/types';
 import type { Mood } from '../components/Aurora';
 import { Confetti } from '../components/Confetti';
-import { IconBolt, IconCheck, IconX } from '../components/Icons';
+import { IconBolt, IconCheck, IconMic, IconSpeaker, IconX } from '../components/Icons';
 import { SpeakButton } from '../components/SpeakButton';
-import { checkTyped } from '../lib/answer';
+import { checkTyped, matchSpoken } from '../lib/answer';
 import { buildChoices } from '../lib/choices';
-import { registerNewItems, type Progress } from '../lib/progress';
+import { explain } from '../lib/explain';
+import { canRecognize, listen, type Listening } from '../lib/listen';
+import { answerField, clozeParts, isChoice, resolveMode, type Mode } from '../lib/modes';
+import {
+  capabilities,
+  pause,
+  pausedMinutes,
+  recordAnswer,
+  registerNewItems,
+  type PauseKind,
+  type Progress,
+} from '../lib/progress';
 import { MAX_RETRIES_PER_ITEM, scheduleRetry, type Step } from '../lib/session';
-import { speak, vibrate } from '../lib/speech';
-import { grade, newCard, type Mode } from '../lib/srs';
+import { playCorrect, playWrong } from '../lib/sfx';
+import { canSpeak, speak, vibrate } from '../lib/speech';
+import { grade, newCard } from '../lib/srs';
 
 export interface Summary {
   answered: number;
@@ -34,6 +47,7 @@ interface Outcome {
   correct: boolean;
   typo: boolean;
   chosen: string | null;
+  why: string[];
 }
 
 const GOOD = ['Mandou bem!', 'Isso aí!', 'Perfeito!', 'Boa!', 'Na mosca!', 'Arrasou!'];
@@ -42,8 +56,12 @@ const LABEL: Record<Mode, string> = {
   'en-pt-choice': 'O que significa?',
   'pt-en-choice': 'Como se diz em inglês?',
   'pt-en-type': 'Escreva em inglês',
+  'listen-choice': 'Ouça e escolha o significado',
+  'cloze-choice': 'Complete a frase',
+  speak: 'Fale em inglês',
 };
 
+const SUPPORT = { speech: canSpeak(), recognition: canRecognize() };
 const pick = (list: readonly string[]) => list[Math.floor(Math.random() * list.length)] ?? '';
 
 export function Session({ steps, pool, progress, updateProgress, setMood, onFinish, onExit }: Props) {
@@ -54,24 +72,48 @@ export function Session({ steps, pool, progress, updateProgress, setMood, onFini
   const [combo, setCombo] = useState(0);
   const [burst, setBurst] = useState(0);
   const [title, setTitle] = useState('');
+  const [listening, setListening] = useState(false);
+  const [micMsg, setMicMsg] = useState<string | null>(null);
   const stats = useRef<Summary>({ answered: 0, correct: 0, bestCombo: 0, newLearned: 0 });
   const retries = useRef(new Map<string, number>());
+  const recognition = useRef<Listening | null>(null);
 
   const step = queue[index];
   const item = step ? itemsById.get(step.itemId) : undefined;
-  const autoAudio = progress.settings.autoAudio;
+  const audioOn = pausedMinutes(progress, 'audio', Date.now()) === 0;
+  const autoAudio = progress.settings.autoAudio && audioOn;
+  const soundsOn = progress.settings.sounds && audioOn;
 
+  // Tipo de pergunta efetivo: troca áudio/microfone quando estão pausados ou indisponíveis.
+  const mode: Mode = useMemo(() => {
+    if (!step || !item) return 'en-pt-choice';
+    return resolveMode(step.mode, item, capabilities(progress, Date.now(), SUPPORT));
+  }, [index, step, item, progress.pauses]);
+
+  // Alternativas fixas durante o passo: reagendar um erro muda a fila, mas não o passo atual.
   const choices = useMemo(() => {
-    if (!step || !item || step.kind !== 'quiz' || step.mode === 'pt-en-type') return [];
-    return buildChoices(item, pool, Math.random, step.mode === 'en-pt-choice' ? 'pt' : 'en');
-    // Fixas durante o passo: reagendar um erro muda a fila, mas não o passo atual.
-  }, [index, step]);
+    if (!step || !item || step.kind !== 'quiz' || !isChoice(mode)) return [];
+    return buildChoices(item, pool, Math.random, answerField(mode));
+  }, [index, step, mode]);
 
-  // Áudio automático ao mostrar uma palavra em inglês.
+  const cloze = item && mode === 'cloze-choice' ? clozeParts(item) : null;
+
+  // Áudio automático ao mostrar a pergunta.
   useEffect(() => {
-    if (!item || !autoAudio || outcome) return;
-    if (step?.kind === 'intro' || step?.mode === 'en-pt-choice') speak(item.en);
-  }, [index, step]);
+    if (!item || outcome) return;
+    if (mode === 'listen-choice' && audioOn) speak(item.en);
+    else if (autoAudio && (step?.kind === 'intro' || mode === 'en-pt-choice')) speak(item.en);
+  }, [index, step, mode]);
+
+  // Para o microfone ao trocar de passo ou sair.
+  useEffect(() => {
+    setMicMsg(null);
+    return () => {
+      recognition.current?.stop();
+      recognition.current = null;
+      setListening(false);
+    };
+  }, [index]);
 
   const finish = useCallback(() => {
     setMood('idle');
@@ -98,16 +140,10 @@ export function Session({ steps, pool, progress, updateProgress, setMood, onFini
       if (!step || !item || outcome) return;
       const now = Date.now();
       updateProgress((p) => {
-        const next: Progress = {
-          ...p,
-          totalAnswers: p.totalAnswers + 1,
-          totalCorrect: p.totalCorrect + (correct ? 1 : 0),
-        };
-        if (step.graded) {
-          const card = p.cards[item.id] ?? newCard(now);
-          next.cards = { ...p.cards, [item.id]: grade(card, correct, now) };
-        }
-        return next;
+        const next = recordAnswer(p, now, correct);
+        if (!step.graded) return next;
+        const card = p.cards[item.id] ?? newCard(now);
+        return { ...next, cards: { ...p.cards, [item.id]: grade(card, correct, now) } };
       });
 
       stats.current.answered += 1;
@@ -119,10 +155,12 @@ export function Session({ steps, pool, progress, updateProgress, setMood, onFini
         setBurst((b) => b + 1);
         setTitle(typo ? 'Quase perfeito!' : pick(GOOD));
         vibrate(25);
+        if (soundsOn) playCorrect();
       } else {
         setCombo(0);
         setTitle(pick(BAD));
         vibrate([70, 50, 70]);
+        if (soundsOn) playWrong();
         const used = retries.current.get(item.id) ?? 0;
         if (used < MAX_RETRIES_PER_ITEM) {
           retries.current.set(item.id, used + 1);
@@ -130,11 +168,53 @@ export function Session({ steps, pool, progress, updateProgress, setMood, onFini
         }
       }
       setMood(correct ? 'correct' : 'wrong');
-      setOutcome({ correct, typo, chosen });
-      if (autoAudio && (step.mode !== 'en-pt-choice' || !correct)) speak(item.en);
+      const why = correct ? [] : explain({ item, mode, chosen, pool, notes });
+      setOutcome({ correct, typo, chosen, why });
+      // A pronúncia vem depois do efeito sonoro.
+      if (autoAudio && (answerField(mode) === 'en' || !correct)) setTimeout(() => speak(item.en), soundsOn ? 380 : 0);
     },
-    [autoAudio, combo, index, item, outcome, setMood, step, updateProgress],
+    [autoAudio, combo, index, item, mode, outcome, pool, setMood, soundsOn, step, updateProgress],
   );
+
+  const pauseKind = useCallback(
+    (kind: PauseKind) => {
+      recognition.current?.stop();
+      setListening(false);
+      updateProgress((p) => pause(p, kind, Date.now()));
+    },
+    [updateProgress],
+  );
+
+  const startListening = useCallback(() => {
+    if (!item || outcome || listening) return;
+    setMicMsg(null);
+    setListening(true);
+    const session = listen();
+    recognition.current = session;
+    session.result
+      .then((alternatives) => {
+        if (recognition.current !== session) return;
+        setListening(false);
+        if (alternatives.length === 0) {
+          setMicMsg('Não ouvi nada. Toque no microfone e fale de novo.');
+          return;
+        }
+        const ok = matchSpoken(alternatives, item.en);
+        answer(ok, alternatives[0] ?? '');
+      })
+      .catch((err: unknown) => {
+        if (recognition.current !== session) return;
+        setListening(false);
+        const code = err instanceof Error ? err.message : '';
+        setMicMsg(
+          code === 'not-allowed' || code === 'service-not-allowed'
+            ? 'Sem permissão para o microfone. Libere nas configurações do navegador ou toque em "Não posso falar agora".'
+            : code === 'network'
+              ? 'O reconhecimento de voz precisa de internet. Tente de novo ou toque em "Não posso falar agora".'
+              : 'O microfone não funcionou agora. Tente de novo ou toque em "Não posso falar agora".',
+        );
+      });
+  }, [answer, item, listening, outcome]);
 
   // Teclado: 1–4 escolhem, Enter continua.
   useEffect(() => {
@@ -151,19 +231,19 @@ export function Session({ steps, pool, progress, updateProgress, setMood, onFini
         return;
       }
       const n = Number(e.key);
-      if (!outcome && n >= 1 && n <= choices.length && item && step) {
+      if (!outcome && n >= 1 && n <= choices.length && item) {
         const choice = choices[n - 1] ?? '';
-        answer(choice === (step.mode === 'en-pt-choice' ? item.pt : item.en), choice);
+        answer(choice === item[answerField(mode)], choice);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [advance, answer, choices, continueIntro, item, outcome, step]);
+  }, [advance, answer, choices, continueIntro, item, mode, outcome, step]);
 
   if (!step || !item) return null;
 
-  const expected = step.mode === 'en-pt-choice' ? item.pt : item.en;
-  const promptText = step.mode === 'en-pt-choice' ? item.en : item.pt;
+  const expected = item[answerField(mode)];
+  const promptText = mode === 'en-pt-choice' ? item.en : item.pt;
   const pct = Math.round((index / queue.length) * 100);
 
   const onTypeSubmit = (e: FormEvent) => {
@@ -175,6 +255,163 @@ export function Session({ steps, pool, progress, updateProgress, setMood, onFini
     if (typed.trim() === '') return;
     const result = checkTyped(typed, item.en);
     answer(result !== 'wrong', typed, result === 'typo');
+  };
+
+  const renderPrompt = () => {
+    if (mode === 'listen-choice') {
+      return (
+        <div className="listen-box">
+          <motion.button
+            type="button"
+            className="listen-btn"
+            onClick={() => speak(item.en, 0.9)}
+            whileTap={{ scale: 0.92 }}
+            aria-label="Ouvir de novo"
+          >
+            <span className="ripple" aria-hidden="true" />
+            <IconSpeaker />
+          </motion.button>
+          <button type="button" className="link-btn" onClick={() => speak(item.en, 0.6)}>
+            Ouvir devagar
+          </button>
+        </div>
+      );
+    }
+    if (mode === 'cloze-choice' && cloze) {
+      return (
+        <div className="cloze">
+          <p className="cloze-sentence">
+            {cloze.before}
+            <span className={`blank${outcome ? (outcome.correct ? ' filled good' : ' filled bad') : ''}`}>
+              {outcome ? cloze.answer : ' '}
+            </span>
+            {cloze.after}
+          </p>
+          {item.exPt && <p className="muted cloze-hint">{item.exPt}</p>}
+        </div>
+      );
+    }
+    return (
+      <div className="row" style={{ alignItems: 'flex-start' }}>
+        <h1 className={promptText.length > 14 ? 'prompt-word small' : 'prompt-word'} style={{ flex: 1 }}>
+          {promptText}
+        </h1>
+        {mode === 'en-pt-choice' && audioOn && <SpeakButton text={item.en} />}
+      </div>
+    );
+  };
+
+  const renderAnswerArea = () => {
+    if (mode === 'pt-en-type') {
+      return (
+        <form onSubmit={onTypeSubmit} className="options">
+          <motion.input
+            className={`type-input${outcome ? (outcome.correct ? ' is-correct' : ' is-wrong') : ''}`}
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            placeholder="Digite aqui…"
+            aria-label="Sua resposta em inglês"
+            autoFocus
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            readOnly={outcome !== null}
+            animate={outcome && !outcome.correct ? { x: [0, -12, 12, -8, 8, 0] } : { x: 0 }}
+            transition={{ duration: 0.4 }}
+          />
+          {!outcome && (
+            <div className="row">
+              <button type="button" className="btn btn-ghost" onClick={() => answer(false, null)}>
+                Não sei
+              </button>
+              <button type="submit" className="btn btn-primary" style={{ flex: 1 }} disabled={typed.trim() === ''}>
+                Verificar
+              </button>
+            </div>
+          )}
+        </form>
+      );
+    }
+    if (mode === 'speak') {
+      return (
+        <div className="speak-box">
+          <motion.button
+            type="button"
+            className={`mic-btn${listening ? ' is-listening' : ''}${outcome ? (outcome.correct ? ' is-correct' : ' is-wrong') : ''}`}
+            onClick={startListening}
+            disabled={outcome !== null || listening}
+            whileTap={{ scale: 0.92 }}
+            aria-label={listening ? 'Ouvindo…' : 'Toque e fale em inglês'}
+          >
+            {listening && <span className="ripple" aria-hidden="true" />}
+            <IconMic />
+          </motion.button>
+          <p className="muted" aria-live="polite" style={{ margin: 0, textAlign: 'center' }}>
+            {outcome?.chosen
+              ? `Você disse: "${outcome.chosen}"`
+              : listening
+                ? 'Ouvindo… fale agora'
+                : micMsg ?? 'Toque no microfone e fale a resposta em inglês'}
+          </p>
+          {!outcome && (
+            <div className="row" style={{ justifyContent: 'center', flexWrap: 'wrap' }}>
+              <button type="button" className="link-btn" onClick={() => pauseKind('mic')}>
+                Não posso falar agora (15 min)
+              </button>
+              <button type="button" className="link-btn" onClick={() => answer(false, null)}>
+                Não sei
+              </button>
+            </div>
+          )}
+        </div>
+      );
+    }
+    return (
+      <>
+        <div className="options" role="group" aria-label="Alternativas">
+          {choices.map((choice, i) => {
+            const isAnswer = choice === expected;
+            const isChosen = outcome?.chosen === choice;
+            let cls = 'option';
+            if (outcome) {
+              if (isAnswer) cls += ' is-correct';
+              else if (isChosen) cls += ' is-wrong';
+              else cls += ' is-dim';
+            }
+            return (
+              <motion.button
+                key={choice}
+                type="button"
+                className={cls}
+                disabled={outcome !== null}
+                onClick={() => answer(isAnswer, choice)}
+                initial={{ opacity: 0, y: 14 }}
+                animate={
+                  outcome && isChosen && !isAnswer
+                    ? { opacity: 1, y: 0, x: [0, -12, 12, -8, 8, 0] }
+                    : outcome && isAnswer
+                      ? { opacity: 1, y: 0, scale: [1, 1.04, 1] }
+                      : { opacity: 1, y: 0 }
+                }
+                transition={{ delay: outcome ? 0 : 0.05 * i, duration: outcome ? 0.4 : 0.3 }}
+                whileTap={outcome ? undefined : { scale: 0.97 }}
+              >
+                <span className="key">{i + 1}</span>
+                <span>{choice}</span>
+                {outcome && isAnswer && <IconCheck className="mark" />}
+                {outcome && isChosen && !isAnswer && <IconX className="mark" />}
+              </motion.button>
+            );
+          })}
+        </div>
+        {mode === 'listen-choice' && !outcome && (
+          <button type="button" className="link-btn" onClick={() => pauseKind('audio')} style={{ alignSelf: 'center' }}>
+            Não posso ouvir agora (15 min)
+          </button>
+        )}
+      </>
+    );
   };
 
   return (
@@ -206,7 +443,7 @@ export function Session({ steps, pool, progress, updateProgress, setMood, onFini
 
       <AnimatePresence mode="wait">
         <motion.div
-          key={`${index}-${step.itemId}`}
+          key={`${index}-${step.itemId}-${mode}`}
           className="stage"
           initial={{ opacity: 0, y: 28, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -220,7 +457,7 @@ export function Session({ steps, pool, progress, updateProgress, setMood, onFini
                 <h1 className={item.en.length > 14 ? 'prompt-word small' : 'prompt-word'} style={{ flex: 1 }}>
                   {item.en}
                 </h1>
-                <SpeakButton text={item.en} />
+                {audioOn && <SpeakButton text={item.en} />}
               </div>
               <p className="translation">{item.pt}</p>
               {item.ex && (
@@ -229,9 +466,10 @@ export function Session({ steps, pool, progress, updateProgress, setMood, onFini
                     <p className="en">{item.ex}</p>
                     <p className="pt">{item.exPt}</p>
                   </div>
-                  <SpeakButton text={item.ex} size="small" />
+                  {audioOn && <SpeakButton text={item.ex} size="small" />}
                 </div>
               )}
+              {notes[item.en.toLowerCase()] && <p className="tip">💡 {notes[item.en.toLowerCase()]}</p>}
               <button type="button" className="btn btn-primary btn-block" onClick={continueIntro} autoFocus>
                 Entendi
               </button>
@@ -239,82 +477,11 @@ export function Session({ steps, pool, progress, updateProgress, setMood, onFini
           ) : (
             <>
               <div className="prompt">
-                <p className="eyebrow">{LABEL[step.mode]}</p>
-                <div className="row" style={{ alignItems: 'flex-start' }}>
-                  <h1 className={promptText.length > 14 ? 'prompt-word small' : 'prompt-word'} style={{ flex: 1 }}>
-                    {promptText}
-                  </h1>
-                  {step.mode === 'en-pt-choice' && <SpeakButton text={item.en} />}
-                </div>
+                <p className="eyebrow">{LABEL[mode]}</p>
+                {renderPrompt()}
               </div>
-
-              {step.mode === 'pt-en-type' ? (
-                <form onSubmit={onTypeSubmit} className="options">
-                  <motion.input
-                    className={`type-input${outcome ? (outcome.correct ? ' is-correct' : ' is-wrong') : ''}`}
-                    value={typed}
-                    onChange={(e) => setTyped(e.target.value)}
-                    placeholder="Digite aqui…"
-                    aria-label="Sua resposta em inglês"
-                    autoFocus
-                    autoComplete="off"
-                    autoCorrect="off"
-                    autoCapitalize="off"
-                    spellCheck={false}
-                    readOnly={outcome !== null}
-                    animate={outcome && !outcome.correct ? { x: [0, -12, 12, -8, 8, 0] } : { x: 0 }}
-                    transition={{ duration: 0.4 }}
-                  />
-                  {!outcome && (
-                    <div className="row">
-                      <button type="button" className="btn btn-ghost" onClick={() => answer(false, null)}>
-                        Não sei
-                      </button>
-                      <button type="submit" className="btn btn-primary" style={{ flex: 1 }} disabled={typed.trim() === ''}>
-                        Verificar
-                      </button>
-                    </div>
-                  )}
-                </form>
-              ) : (
-                <div className="options" role="group" aria-label="Alternativas">
-                  {choices.map((choice, i) => {
-                    const isAnswer = choice === expected;
-                    const isChosen = outcome?.chosen === choice;
-                    let cls = 'option';
-                    if (outcome) {
-                      if (isAnswer) cls += ' is-correct';
-                      else if (isChosen) cls += ' is-wrong';
-                      else cls += ' is-dim';
-                    }
-                    return (
-                      <motion.button
-                        key={choice}
-                        type="button"
-                        className={cls}
-                        disabled={outcome !== null}
-                        onClick={() => answer(isAnswer, choice)}
-                        initial={{ opacity: 0, y: 14 }}
-                        animate={
-                          outcome && isChosen && !isAnswer
-                            ? { opacity: 1, y: 0, x: [0, -12, 12, -8, 8, 0] }
-                            : outcome && isAnswer
-                              ? { opacity: 1, y: 0, scale: [1, 1.04, 1] }
-                              : { opacity: 1, y: 0 }
-                        }
-                        transition={{ delay: outcome ? 0 : 0.05 * i, duration: outcome ? 0.4 : 0.3 }}
-                        whileTap={outcome ? undefined : { scale: 0.97 }}
-                      >
-                        <span className="key">{i + 1}</span>
-                        <span>{choice}</span>
-                        {outcome && isAnswer && <IconCheck className="mark" />}
-                        {outcome && isChosen && !isAnswer && <IconX className="mark" />}
-                      </motion.button>
-                    );
-                  })}
-                </div>
-              )}
-              {outcome && <div style={{ height: 250 }} aria-hidden="true" />}
+              {renderAnswerArea()}
+              {outcome && <div style={{ height: outcome.correct ? 250 : 340 }} aria-hidden="true" />}
             </>
           )}
         </motion.div>
@@ -333,7 +500,12 @@ export function Session({ steps, pool, progress, updateProgress, setMood, onFini
           >
             <div className="sheet-inner">
               <h3>
-                <motion.span initial={{ scale: 0, rotate: -30 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: 'spring', stiffness: 500, damping: 15, delay: 0.05 }} style={{ display: 'inline-flex' }}>
+                <motion.span
+                  initial={{ scale: 0, rotate: -30 }}
+                  animate={{ scale: 1, rotate: 0 }}
+                  transition={{ type: 'spring', stiffness: 500, damping: 15, delay: 0.05 }}
+                  style={{ display: 'inline-flex' }}
+                >
                   {outcome.correct ? <IconCheck /> : <IconX />}
                 </motion.span>
                 {title}
@@ -341,15 +513,31 @@ export function Session({ steps, pool, progress, updateProgress, setMood, onFini
               <p className="answer-line">
                 {item.en} <span className="muted">— {item.pt}</span>
               </p>
-              {outcome.typo && <p className="muted" style={{ margin: 0 }}>Grafia certa: <strong style={{ color: 'var(--text)' }}>{item.en}</strong></p>}
-              {!outcome.correct && <p className="muted" style={{ margin: 0 }}>Essa volta daqui a pouco para você fixar.</p>}
-              {item.ex && (
+              {outcome.typo && (
+                <p className="muted" style={{ margin: 0 }}>
+                  Grafia certa: <strong style={{ color: 'var(--text)' }}>{item.en}</strong>
+                </p>
+              )}
+              {!outcome.correct && (
+                <div className="why">
+                  <p className="eyebrow">Por quê?</p>
+                  <ul>
+                    {outcome.why.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                  <p className="muted" style={{ margin: 0, fontSize: 14 }}>
+                    Essa volta daqui a pouco para você fixar.
+                  </p>
+                </div>
+              )}
+              {outcome.correct && item.ex && (
                 <div className="example">
                   <div style={{ flex: 1 }}>
                     <p className="en">{item.ex}</p>
                     <p className="pt">{item.exPt}</p>
                   </div>
-                  <SpeakButton text={item.ex} size="small" />
+                  {audioOn && <SpeakButton text={item.ex} size="small" />}
                 </div>
               )}
               <button type="button" className={`btn btn-block ${outcome.correct ? 'btn-good' : 'btn-bad'}`} onClick={advance} autoFocus>

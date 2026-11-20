@@ -3,8 +3,18 @@ import { DAY, dayKey, isMastered, startOfDay, type CardState } from './srs';
 
 export interface Settings {
   autoAudio: boolean;
+  sounds: boolean;
   newPerDay: number;
 }
+
+export interface DayStats {
+  answers: number;
+  correct: number;
+  newItems: number;
+}
+
+export type PauseKind = 'audio' | 'mic';
+export const PAUSE_MINUTES = 15;
 
 export interface Progress {
   version: 1;
@@ -17,6 +27,10 @@ export interface Progress {
   totalCorrect: number;
   bestCombo: number;
   settings: Settings;
+  /** Até quando (ms) perguntas de áudio / microfone ficam escondidas. */
+  pauses: Record<PauseKind, number>;
+  /** Histórico por dia (chave "AAAA-MM-DD"). */
+  history: Record<string, DayStats>;
 }
 
 export const UNLOCK_RATIO = 0.8;
@@ -31,7 +45,9 @@ export function emptyProgress(): Progress {
     totalAnswers: 0,
     totalCorrect: 0,
     bestCombo: 0,
-    settings: { autoAudio: true, newPerDay: 12 },
+    settings: { autoAudio: true, sounds: true, newPerDay: 12 },
+    pauses: { audio: 0, mic: 0 },
+    history: {},
   };
 }
 
@@ -77,7 +93,50 @@ export function registerStudyDay(progress: Progress, now: number): Progress {
 export function registerNewItems(progress: Progress, now: number, count: number): Progress {
   const today = dayKey(now);
   const base = progress.newToday.day === today ? progress.newToday.count : 0;
-  return { ...progress, newToday: { day: today, count: base + count } };
+  const day = progress.history[today] ?? { answers: 0, correct: 0, newItems: 0 };
+  return {
+    ...progress,
+    newToday: { day: today, count: base + count },
+    history: { ...progress.history, [today]: { ...day, newItems: day.newItems + count } },
+  };
+}
+
+/** Soma a resposta no total e no histórico do dia. */
+export function recordAnswer(progress: Progress, now: number, correct: boolean): Progress {
+  const today = dayKey(now);
+  const day = progress.history[today] ?? { answers: 0, correct: 0, newItems: 0 };
+  return {
+    ...progress,
+    totalAnswers: progress.totalAnswers + 1,
+    totalCorrect: progress.totalCorrect + (correct ? 1 : 0),
+    history: { ...progress.history, [today]: { ...day, answers: day.answers + 1, correct: day.correct + (correct ? 1 : 0) } },
+  };
+}
+
+/** Esconde perguntas de áudio ou microfone por 15 minutos. */
+export function pause(progress: Progress, kind: PauseKind, now: number): Progress {
+  return { ...progress, pauses: { ...progress.pauses, [kind]: now + PAUSE_MINUTES * 60_000 } };
+}
+
+export function resume(progress: Progress, kind: PauseKind): Progress {
+  return { ...progress, pauses: { ...progress.pauses, [kind]: 0 } };
+}
+
+/** Minutos restantes de pausa (0 = ativo). */
+export function pausedMinutes(progress: Progress, kind: PauseKind, now: number): number {
+  const until = progress.pauses[kind];
+  return until > now ? Math.ceil((until - now) / 60_000) : 0;
+}
+
+export function capabilities(
+  progress: Progress,
+  now: number,
+  support: { speech: boolean; recognition: boolean },
+): { audio: boolean; mic: boolean } {
+  return {
+    audio: support.speech && pausedMinutes(progress, 'audio', now) === 0,
+    mic: support.recognition && pausedMinutes(progress, 'mic', now) === 0,
+  };
 }
 
 // Chave antiga (nome provisório "Loop"): não mudar, senão o progresso salvo se perde.
@@ -89,7 +148,13 @@ export function loadProgress(): Progress {
     if (!raw) return emptyProgress();
     const parsed = JSON.parse(raw) as Partial<Progress>;
     const base = emptyProgress();
-    return { ...base, ...parsed, settings: { ...base.settings, ...parsed.settings } };
+    return {
+      ...base,
+      ...parsed,
+      settings: { ...base.settings, ...parsed.settings },
+      pauses: { ...base.pauses, ...parsed.pauses },
+      history: { ...parsed.history },
+    };
   } catch {
     return emptyProgress();
   }

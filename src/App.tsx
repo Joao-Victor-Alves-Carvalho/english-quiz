@@ -6,13 +6,15 @@ import {
   currentStreak,
   loadProgress,
   newAllowedToday,
+  pausedMinutes,
   registerStudyDay,
+  resume,
   saveProgress,
   unlockedPacks,
   type Progress,
 } from './lib/progress';
 import { buildSession, DEFAULT_SESSION, dueItems, shuffle, unseenItems, type Step } from './lib/session';
-import { modeForBox } from './lib/srs';
+import { modeFor } from './lib/modes';
 import { Home } from './screens/Home';
 import { Result } from './screens/Result';
 import { Session, type Summary } from './screens/Session';
@@ -51,11 +53,11 @@ export function App() {
     const weakest = seen
       .sort((a, b) => (progress.cards[a.id]?.box ?? 0) - (progress.cards[b.id]?.box ?? 0))
       .slice(0, 12);
-    const steps = shuffle(weakest, Math.random).map<Step>((item) => ({
+    const steps = shuffle(weakest, Math.random).map<Step>((item, slot) => ({
       itemId: item.id,
       kind: 'quiz',
       graded: false,
-      mode: modeForBox(progress.cards[item.id]?.box ?? 0),
+      mode: modeFor(progress.cards[item.id]?.box ?? 0, slot, item),
     }));
     setScreen({ name: 'session', steps, key: Date.now() });
   };
@@ -95,6 +97,8 @@ export function App() {
                 onToggleAudio={() =>
                   setProgress((p) => ({ ...p, settings: { ...p.settings, autoAudio: !p.settings.autoAudio } }))
                 }
+                onToggleSounds={() => setProgress((p) => ({ ...p, settings: { ...p.settings, sounds: !p.settings.sounds } }))}
+                onResume={(kind) => setProgress((p) => resume(p, kind))}
               />
             )}
             {screen.name === 'session' && (
@@ -109,7 +113,12 @@ export function App() {
               />
             )}
             {screen.name === 'result' && (
-              <Result summary={screen.summary} streak={currentStreak(progress, Date.now())} onDone={goHome} />
+              <Result
+                summary={screen.summary}
+                streak={currentStreak(progress, Date.now())}
+                sound={progress.settings.sounds && pausedMinutes(progress, 'audio', Date.now()) === 0}
+                onDone={goHome}
+              />
             )}
             {screen.name === 'words' && <Words items={plan.pool} progress={progress} onBack={goHome} />}
           </motion.div>
