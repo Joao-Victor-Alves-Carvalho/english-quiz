@@ -126,3 +126,18 @@ export function scheduleRetry(queue: readonly Step[], index: number, step: Step)
   const at = Math.min(queue.length, index + 1 + RETRY_GAP);
   return [...queue.slice(0, at), retry, ...queue.slice(at)];
 }
+
+/** Dias em que um erro continua no caderno de erros. */
+export const MISTAKE_WINDOW_DAYS = 14;
+
+/** Itens errados recentemente (e ainda não corrigidos), do erro mais novo ao mais antigo. */
+export function mistakeItems(
+  items: readonly Item[],
+  cards: Readonly<Record<string, CardState>>,
+  now: number,
+): Item[] {
+  const since = now - MISTAKE_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  return items
+    .filter((item) => (cards[item.id]?.lastWrong ?? 0) >= since)
+    .sort((a, b) => (cards[b.id]?.lastWrong ?? 0) - (cards[a.id]?.lastWrong ?? 0));
+}

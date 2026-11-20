@@ -1,40 +1,95 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { packs } from './data/packs';
 import { situations } from './data/situations';
+import { stories } from './data/stories';
 import { Aurora, type Mood } from './components/Aurora';
+import { MedalToast } from './components/MedalToast';
+import { awardMedals, type Medal } from './lib/medals';
+import { tick } from './lib/miller';
+import { modeFor } from './lib/modes';
 import {
+  addStudyTime,
+  completeEar,
+  completeSituation,
+  completeStory,
   currentStreak,
   loadProgress,
   newAllowedToday,
+  orderByFocus,
   pausedMinutes,
   registerStudyDay,
-  completeSituation,
   resume,
   saveProgress,
   unlockedPacks,
   type Progress,
 } from './lib/progress';
-import { buildSession, DEFAULT_SESSION, dueItems, shuffle, unseenItems, type Step } from './lib/session';
-import { modeFor } from './lib/modes';
-import { playCorrect } from './lib/sfx';
-import { Home } from './screens/Home';
-import { Result } from './screens/Result';
-import { Session, type Summary } from './screens/Session';
-import { Words } from './screens/Words';
+import { buildSession, DEFAULT_SESSION, dueItems, mistakeItems, shuffle, unseenItems, type Step } from './lib/session';
 import { Chat } from './screens/Chat';
+import { Ear } from './screens/Ear';
+import { Home } from './screens/Home';
+import { ProgressScreen } from './screens/ProgressScreen';
+import { Result } from './screens/Result';
+import { Session, type SessionKind, type Summary } from './screens/Session';
+import { Settings } from './screens/Settings';
 import { Situations } from './screens/Situations';
+import { Stories } from './screens/Stories';
+import { StoryReader } from './screens/StoryReader';
+import { Words } from './screens/Words';
 
-type Screen = { name: 'home' } | { name: 'session'; steps: Step[]; key: number } | { name: 'result'; summary: Summary } | { name: 'words' }
+type Screen =
+  | { name: 'home' }
+  | { name: 'session'; steps: Step[]; key: number; kind: SessionKind }
+  | { name: 'result'; summary: Summary; ms: number }
+  | { name: 'words' }
   | { name: 'situations' }
-  | { name: 'chat'; id: string; key: number };
+  | { name: 'chat'; id: string; key: number }
+  | { name: 'stories' }
+  | { name: 'story'; id: string; key: number }
+  | { name: 'ear' }
+  | { name: 'progress' }
+  | { name: 'settings' };
+
+export type NavTarget = 'words' | 'situations' | 'stories' | 'ear' | 'progress' | 'settings';
+
+/** Telas em que o relógio de estudo (Tempo de Miller) conta. */
+const STUDY_SCREENS = new Set<Screen['name']>(['session', 'chat', 'story', 'ear']);
 
 export function App() {
   const [progress, setProgress] = useState<Progress>(loadProgress);
   const [screen, setScreen] = useState<Screen>({ name: 'home' });
   const [mood, setMood] = useState<Mood>('idle');
+  const [toasts, setToasts] = useState<Medal[]>([]);
+  const lastTouch = useRef<number | null>(null);
+  const sessionStartMs = useRef(0);
 
   useEffect(() => saveProgress(progress), [progress]);
+
+  // Medalhas: confere a cada mudança no progresso e avisa as novas.
+  useEffect(() => {
+    const { progress: next, awarded } = awardMedals(progress, Date.now());
+    if (awarded.length > 0) {
+      setProgress(next);
+      setToasts((t) => [...t, ...awarded]);
+    }
+  }, [progress]);
+
+  // Relógio de estudo: soma o tempo entre toques nas telas de estudo (pausas longas não contam).
+  useEffect(() => {
+    lastTouch.current = null;
+    if (!STUDY_SCREENS.has(screen.name)) return;
+    const onTouch = () => {
+      const { add, last } = tick(lastTouch.current, Date.now());
+      lastTouch.current = last;
+      if (add > 0) setProgress((p) => addStudyTime(p, Date.now(), add));
+    };
+    window.addEventListener('pointerdown', onTouch, { capture: true, passive: true });
+    window.addEventListener('keydown', onTouch, { capture: true, passive: true });
+    return () => {
+      window.removeEventListener('pointerdown', onTouch, { capture: true });
+      window.removeEventListener('keydown', onTouch, { capture: true });
+    };
+  }, [screen.name]);
 
   const updateProgress = useCallback((fn: (p: Progress) => Progress) => setProgress(fn), []);
 
@@ -44,37 +99,43 @@ export function App() {
     const unlocked = unlockedPacks(packs, progress.cards);
     const pool = unlocked.flatMap((p) => p.items);
     const due = dueItems(pool, progress.cards, now);
-    const unseen = unseenItems(pool, progress.cards);
+    const unseen = orderByFocus(unseenItems(pool, progress.cards), progress.settings.focusPack);
     const newCount = Math.min(newAllowedToday(progress, now), unseen.length);
-    return { unlocked, pool, due, unseen, newCount };
+    const mistakes = mistakeItems(pool, progress.cards, now);
+    return { unlocked, pool, due, unseen, newCount, mistakes };
   }, [progress, screen.name]);
 
   const seenWords = Object.keys(progress.cards).length;
-  const chatSituation = screen.name === 'chat' ? situations.find((s) => s.id === screen.id) : undefined;
+
+  const openSession = (steps: Step[], kind: SessionKind) => {
+    sessionStartMs.current = progress.totalMs;
+    setScreen({ name: 'session', steps, key: Date.now(), kind });
+  };
 
   const start = () => {
     const fresh = plan.unseen.slice(0, Math.min(plan.newCount, DEFAULT_SESSION.maxNew));
-    const steps = buildSession(plan.due, fresh, progress.cards, Math.random);
-    setScreen({ name: 'session', steps, key: Date.now() });
+    openSession(buildSession(plan.due, fresh, progress.cards, Math.random), 'normal');
   };
 
-  const startExtra = () => {
-    const seen = plan.pool.filter((item) => progress.cards[item.id]);
-    const weakest = seen
-      .sort((a, b) => (progress.cards[a.id]?.box ?? 0) - (progress.cards[b.id]?.box ?? 0))
-      .slice(0, 12);
-    const steps = shuffle(weakest, Math.random).map<Step>((item, slot) => ({
+  const quizSteps = (items: typeof plan.pool) =>
+    shuffle(items, Math.random).map<Step>((item, slot) => ({
       itemId: item.id,
       kind: 'quiz',
       graded: false,
       mode: modeFor(progress.cards[item.id]?.box ?? 0, slot, item),
     }));
-    setScreen({ name: 'session', steps, key: Date.now() });
+
+  const startExtra = () => {
+    const seen = plan.pool.filter((item) => progress.cards[item.id]);
+    const weakest = seen.sort((a, b) => (progress.cards[a.id]?.box ?? 0) - (progress.cards[b.id]?.box ?? 0)).slice(0, 12);
+    openSession(quizSteps(weakest), 'extra');
   };
+
+  const startMistakes = () => openSession(quizSteps(plan.mistakes.slice(0, 15)), 'mistakes');
 
   const finish = (summary: Summary) => {
     setProgress((p) => ({ ...registerStudyDay(p, Date.now()), bestCombo: Math.max(p.bestCombo, summary.bestCombo) }));
-    setScreen({ name: 'result', summary });
+    setScreen({ name: 'result', summary, ms: Math.max(0, progress.totalMs - sessionStartMs.current) });
   };
 
   const goHome = () => {
@@ -82,13 +143,19 @@ export function App() {
     setScreen({ name: 'home' });
   };
 
+  const navigate = (target: NavTarget) => setScreen({ name: target } as Screen);
+  const soundOn = progress.settings.sounds && pausedMinutes(progress, 'audio', Date.now()) === 0;
+  const chatSituation = screen.name === 'chat' ? situations.find((s) => s.id === screen.id) : undefined;
+  const story = screen.name === 'story' ? stories.find((s) => s.id === screen.id) : undefined;
+  const screenKey = 'key' in screen ? `${screen.name}-${screen.key}` : screen.name;
+
   return (
     <>
       <Aurora mood={mood} />
       <main className="app">
         <AnimatePresence mode="wait">
           <motion.div
-            key={screen.name === 'session' ? `session-${screen.key}` : screen.name === 'chat' ? `chat-${screen.key}` : screen.name}
+            key={screenKey}
             className="screen"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -100,26 +167,21 @@ export function App() {
                 progress={progress}
                 dueCount={plan.due.length}
                 newCount={plan.newCount}
-                unlockedCount={plan.unlocked.length}
+                mistakesCount={plan.mistakes.length}
+                unlocked={plan.unlocked}
+                seenWords={seenWords}
                 onStart={start}
                 onExtra={startExtra}
-                onWords={() => setScreen({ name: 'words' })}
-                onSituations={() => setScreen({ name: 'situations' })}
-                seenWords={seenWords}
-                onToggleAudio={() =>
-                  setProgress((p) => ({ ...p, settings: { ...p.settings, autoAudio: !p.settings.autoAudio } }))
-                }
-                onToggleSounds={() => {
-                  // Ao ligar, toca uma amostra (dentro do toque, o que também destrava o áudio no iPhone).
-                  if (!progress.settings.sounds) playCorrect();
-                  setProgress((p) => ({ ...p, settings: { ...p.settings, sounds: !p.settings.sounds } }));
-                }}
+                onMistakes={startMistakes}
+                onNavigate={navigate}
+                onFocus={(id) => setProgress((p) => ({ ...p, settings: { ...p.settings, focusPack: id } }))}
                 onResume={(kind) => setProgress((p) => resume(p, kind))}
               />
             )}
             {screen.name === 'session' && (
               <Session
                 steps={screen.steps}
+                kind={screen.kind}
                 pool={plan.pool}
                 progress={progress}
                 updateProgress={updateProgress}
@@ -131,8 +193,9 @@ export function App() {
             {screen.name === 'result' && (
               <Result
                 summary={screen.summary}
+                ms={screen.ms}
                 streak={currentStreak(progress, Date.now())}
-                sound={progress.settings.sounds && pausedMinutes(progress, 'audio', Date.now()) === 0}
+                sound={soundOn}
                 onDone={goHome}
               />
             )}
@@ -154,9 +217,37 @@ export function App() {
                 onBack={() => setScreen({ name: 'situations' })}
               />
             )}
+            {screen.name === 'stories' && (
+              <Stories
+                progress={progress}
+                seenWords={seenWords}
+                onOpen={(id) => setScreen({ name: 'story', id, key: Date.now() })}
+                onBack={goHome}
+              />
+            )}
+            {screen.name === 'story' && story && (
+              <StoryReader
+                story={story}
+                progress={progress}
+                onComplete={(score) => setProgress((p) => completeStory(p, story.id, score, Date.now()))}
+                onBack={() => setScreen({ name: 'stories' })}
+              />
+            )}
+            {screen.name === 'ear' && (
+              <Ear
+                pool={plan.pool}
+                progress={progress}
+                updateProgress={updateProgress}
+                onRoundDone={(kind) => setProgress((p) => completeEar(p, kind, Date.now()))}
+                onBack={goHome}
+              />
+            )}
+            {screen.name === 'progress' && <ProgressScreen progress={progress} onBack={goHome} />}
+            {screen.name === 'settings' && <Settings progress={progress} setProgress={setProgress} onBack={goHome} />}
           </motion.div>
         </AnimatePresence>
       </main>
+      <MedalToast queue={toasts} onDone={() => setToasts((t) => t.slice(1))} sound={soundOn} />
     </>
   );
 }

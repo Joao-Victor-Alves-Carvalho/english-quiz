@@ -2,6 +2,7 @@ import { animate, motion, useMotionValue, useTransform } from 'motion/react';
 import { useEffect, useState } from 'react';
 import { Confetti } from '../components/Confetti';
 import { IconFlame } from '../components/Icons';
+import { earthYearsIfOnMiller, formatEarth, formatMiller, formatStudy, millerSeconds } from '../lib/miller';
 import { playComplete } from '../lib/sfx';
 import type { Summary } from './Session';
 
@@ -12,7 +13,7 @@ function headline(pct: number): string {
   return 'Faz parte!';
 }
 
-export function Result({ summary, streak, sound, onDone }: { summary: Summary; streak: number; sound: boolean; onDone: () => void }) {
+export function Result({ summary, ms, streak, sound, onDone }: { summary: Summary; ms: number; streak: number; sound: boolean; onDone: () => void }) {
   const pct = summary.answered > 0 ? Math.round((summary.correct / summary.answered) * 100) : 0;
   const value = useMotionValue(0);
   const dash = useTransform(value, (v) => `${(v / 100) * 565} 565`);
@@ -63,6 +64,13 @@ export function Result({ summary, streak, sound, onDone }: { summary: Summary; s
           <span>melhor combo</span>
         </div>
       </motion.div>
+
+      {ms > 0 && (
+        <motion.p className="miller-line result-miller" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.55 }}>
+          🪐 Durante seus <strong>{formatStudy(ms)}</strong> de estudo, passaram só <strong>{formatMiller(millerSeconds(ms))}</strong> no planeta de Miller. Lá, esse tempo valeria{' '}
+          <strong>{formatEarth(earthYearsIfOnMiller(ms))}</strong> aqui na Terra.
+        </motion.p>
+      )}
 
       <motion.p className="pill" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.6, type: 'spring' }}>
         <IconFlame /> {streak} {streak === 1 ? 'dia seguido' : 'dias seguidos'}

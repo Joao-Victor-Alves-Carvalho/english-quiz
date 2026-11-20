@@ -416,5 +416,6 @@ export const pack1: Pack = {
   id: 'p1',
   title: 'Essencial',
   subtitle: 'As palavras e frases mais usadas do dia a dia',
+  kind: 'core',
   items: rowsToItems('p1', rows),
 };

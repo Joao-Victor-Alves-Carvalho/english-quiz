@@ -46,6 +46,25 @@ certa, ou falando no microfone. Erros explicam armadilhas comuns de quem fala po
 ("account" × "check", "for travel" × "to go"). No fim: estrelas (3 sem erros) e a lista de
 frases úteis com áudio. Concluir uma situação conta como dia de estudo.
 
+## Versão 0.4 (as 10 ideias)
+
+1. **Progresso**: números gerais, gráfico de minutos por dia (14 dias, com a meta) e medalhas.
+2. **Backup**: código "MM1." para copiar/colar ou arquivo .json; restaurar pede confirmação.
+3. **Caderno de erros**: palavras erradas nos últimos 14 dias; acertar no caderno tira de lá.
+4. **FSRS** (biblioteca `ts-fsrs`, o algoritmo do Anki): decide quando cada palavra volta.
+   Depois de acertar, dá para marcar Difícil / Bom / Fácil (mostra em quantos dias volta).
+   A caixa 0–6 continua definindo o tipo de pergunta. Cartões antigos são migrados sozinhos.
+5. **Pacotes**: Pacote 2 "Dia a dia" (libera com 80% do 1) e temáticos Viagem, Trabalho e
+   Cinema e séries (liberam com 60 palavras vistas). "Focar" escolhe de onde vêm as novas.
+6. **Situações**: 11 no total (+ aeroporto, farmácia, mercado, telefone, Uber, entrevista).
+7. **Histórias**: 6 textos curtos com áudio frase a frase, tradução ao tocar e 3 perguntas.
+8. **Ditado e shadowing**: ouvir e escrever / ouvir e repetir, conferindo palavra por palavra.
+9. **Tempo de Miller**: relógio de estudo (soma o tempo entre toques nas atividades, ignorando
+   pausas de mais de 90 s), meta diária, e a conversão do filme: 1 hora em Miller = 7 anos na
+   Terra. Mostra quanto passou em Miller durante seu estudo e quanto passaria na Terra se você
+   estudasse lá. 19 medalhas temáticas.
+10. **Lembrete**: gera um evento diário (.ics) para a agenda do celular, com alarme e link.
+
 ## Próximas fases
 
 1. **Fase 2 — FSRS**: trocar o Leitner pelo FSRS, com botões "difícil / bom / fácil".

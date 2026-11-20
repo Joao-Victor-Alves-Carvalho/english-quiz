@@ -11,9 +11,10 @@ import {
   registerNewItems,
   registerStudyDay,
   unlockedPacks,
+  orderByFocus,
 } from './progress';
 import { buildSession, dueItems, scheduleRetry, unseenItems, type Step } from './session';
-import { DAY, grade, isMastered, MAX_BOX, newCard, startOfDay, type CardState } from './srs';
+import { DAY, grade, isMastered, MAX_BOX, newCard, previewDays, startOfDay, type CardState } from './srs';
 import { answerField, clozeParts, modeFor, resolveMode } from './modes';
 import { matchSpoken } from './answer';
 import { explain } from './explain';
@@ -53,10 +54,43 @@ describe('conteúdo', () => {
 });
 
 describe('Leitner', () => {
-  it('acerto sobe a caixa e agenda pelo início do dia', () => {
+  it('acerto sobe a caixa e agenda pelo FSRS, contando do início do dia', () => {
     const card = grade(newCard(NOW), true, NOW);
     expect(card.box).toBe(1);
-    expect(card.due).toBe(startOfDay(NOW) + DAY);
+    expect(card.due).toBeGreaterThanOrEqual(startOfDay(NOW) + DAY);
+    expect((card.due - startOfDay(card.due))).toBe(0);
+    expect(card.mem?.s).toBeGreaterThan(1);
+  });
+
+  it('intervalos crescem a cada acerto e a nota muda o intervalo', () => {
+    let card = grade(newCard(NOW), 'good', NOW);
+    const first = card.due - startOfDay(NOW);
+    card = grade(card, 'good', card.due);
+    const second = card.due - startOfDay(card.mem!.last);
+    expect(second).toBeGreaterThan(first);
+    const base = grade(newCard(NOW), 'good', NOW);
+    const days = previewDays(base, base.due);
+    expect(days.hard).toBeLessThanOrEqual(days.good);
+    expect(days.good).toBeLessThan(days.easy);
+  });
+
+  it('erro registra o lapso, baixa a estabilidade e marca o caderno de erros', () => {
+    let card = grade(newCard(NOW), 'good', NOW);
+    card = grade(card, 'good', card.due);
+    const before = card.mem!.s;
+    const wrong = grade(card, 'again', card.due + DAY);
+    expect(wrong.mem!.s).toBeLessThan(before);
+    expect(wrong.mem!.lapses).toBe(1);
+    expect(wrong.lastWrong).toBe(card.due + DAY);
+    expect(wrong.due).toBe(card.due + DAY);
+  });
+
+  it('migra cartões do sistema antigo (sem memória FSRS)', () => {
+    const old: CardState = { box: 4, due: NOW - DAY, correct: 4, wrong: 1, lastSeen: NOW - 8 * DAY };
+    const next = grade(old, 'good', NOW);
+    expect(next.box).toBe(5);
+    expect(next.due - startOfDay(NOW)).toBeGreaterThanOrEqual(7 * DAY);
+    expect(next.mem?.reps).toBe(6);
   });
 
   it('erro desce uma caixa e deixa o item pendente na hora', () => {
@@ -190,10 +224,11 @@ describe('progresso', () => {
   });
 
   it('libera o próximo pacote com 80% dominado', () => {
-    const mk = (id: string): Pack => ({
+    const mk = (id: string, kind: Pack['kind'] = 'core'): Pack => ({
       id,
       title: id,
       subtitle: '',
+      kind,
       items: Array.from({ length: 10 }, (_, i) => ({ id: `${id}:${i}`, en: `${id}${i}`, pt: `${id}${i}`, pos: 'verbo' as const })),
     });
     const a = mk('a');
@@ -202,6 +237,18 @@ describe('progresso', () => {
     expect(unlockedPacks([a, b], cards)).toHaveLength(1);
     for (let i = 0; i < 8; i++) cards[`a:${i}`] = { ...newCard(NOW), box: 4 };
     expect(unlockedPacks([a, b], cards)).toHaveLength(2);
+  });
+
+  it('temáticos liberam com 60 palavras vistas e o foco muda a ordem dos novos', () => {
+    const core = { id: 'c', title: 'c', subtitle: '', kind: 'core' as const, items: [] };
+    const theme = { id: 't', title: 't', subtitle: '', kind: 'theme' as const, items: [] };
+    const cards: Record<string, CardState> = {};
+    expect(unlockedPacks([core, theme], cards).map((p) => p.id)).toEqual(['c']);
+    for (let i = 0; i < 60; i++) cards[`c:${i}`] = newCard(NOW);
+    expect(unlockedPacks([core, theme], cards).map((p) => p.id)).toEqual(['c', 't']);
+    const items = [{ id: 'p1:a' }, { id: 'viagem:b' }, { id: 'p1:c' }];
+    expect(orderByFocus(items, 'viagem').map((i) => i.id)).toEqual(['viagem:b', 'p1:a', 'p1:c']);
+    expect(orderByFocus(items, null).map((i) => i.id)).toEqual(['p1:a', 'viagem:b', 'p1:c']);
   });
 });
 
@@ -349,5 +396,110 @@ describe('situações (chat)', () => {
     p = completeSituation(p, 'hotel', 1, NOW);
     expect(p.situations.hotel).toEqual({ done: 3, best: 3 });
     expect(p.streak).toBe(1);
+  });
+});
+
+describe('Tempo de Miller', () => {
+  it('converte o tempo da Terra para Miller e vice-versa (1 h em Miller = 7 anos aqui)', async () => {
+    const { millerSeconds, earthYearsIfOnMiller, formatMiller, formatEarth, formatStudy, MILLER_RATIO } = await import('./miller');
+    expect(Math.round(MILLER_RATIO)).toBe(61362);
+    expect(millerSeconds(MILLER_RATIO * 1000)).toBeCloseTo(1, 6);
+    expect(earthYearsIfOnMiller(3_600_000)).toBe(7);
+    expect(formatMiller(millerSeconds(10 * 60_000))).toBe('0,0098 segundo');
+    expect(formatEarth(earthYearsIfOnMiller(10 * 60_000))).toBe('1,2 ano');
+    expect(formatEarth(earthYearsIfOnMiller(60_000))).toBe('1,4 mês');
+    expect(formatEarth(earthYearsIfOnMiller(5_000))).toBe('4 dias'); // 3,55 dias
+    expect(formatEarth(earthYearsIfOnMiller(10 * 3_600_000))).toBe('70 anos');
+    expect(formatStudy(45_000)).toBe('45 s');
+    expect(formatStudy(12 * 60_000)).toBe('12 min');
+    expect(formatStudy(65 * 60_000)).toBe('1 h 05 min');
+  });
+
+  it('relógio de estudo ignora pausas longas e soma no dia', async () => {
+    const { tick } = await import('./miller');
+    const { addStudyTime, todayMs } = await import('./progress');
+    expect(tick(null, 1000)).toEqual({ add: 0, last: 1000 });
+    expect(tick(1000, 31_000).add).toBe(30_000);
+    expect(tick(1000, 1000 + 10 * 60_000).add).toBe(0);
+    let p = addStudyTime(emptyProgress(), NOW, 30_000);
+    p = addStudyTime(p, NOW, 30_000);
+    expect(todayMs(p, NOW)).toBe(60_000);
+    expect(p.totalMs).toBe(60_000);
+  });
+});
+
+describe('backup', () => {
+  it('exporta e importa o progresso (código e arquivo)', async () => {
+    const { encodeBackup, decodeBackup, backupJson } = await import('./backup');
+    let p = recordAnswer(emptyProgress(), NOW, true);
+    p = { ...p, cards: { 'p1:hello': grade(newCard(NOW), 'good', NOW) }, streak: 4 };
+    const code = encodeBackup(p);
+    expect(code.startsWith('MM1.')).toBe(true);
+    const back = decodeBackup(code);
+    expect(back.ok && back.progress.cards['p1:hello']?.box).toBe(1);
+    expect(back.ok && back.progress.streak).toBe(4);
+    const file = decodeBackup(backupJson(p));
+    expect(file.ok && file.progress.totalAnswers).toBe(1);
+  });
+
+  it('recusa texto inválido com mensagem clara', async () => {
+    const { decodeBackup } = await import('./backup');
+    expect(decodeBackup('oi').ok).toBe(false);
+    expect(decodeBackup('MM1.@@@').ok).toBe(false);
+    expect(decodeBackup('{"foo":1}').ok).toBe(false);
+  });
+});
+
+describe('ditado e shadowing', () => {
+  it('compara palavra por palavra com tolerância', async () => {
+    const { compareWords } = await import('./compare');
+    expect(compareWords('I like music.', 'i like music').score).toBe(1);
+    const missing = compareWords('I like rock music.', 'I like music');
+    expect(missing.words.map((w) => w.ok)).toEqual([true, true, false, true]);
+    expect(missing.score).toBe(0.75);
+    expect(compareWords('Wait five minutes.', 'wait 5 minutes').score).toBe(1);
+    expect(compareWords('I remember you.', 'I remenber you').score).toBe(1);
+    expect(compareWords('Hello there', '').score).toBe(0);
+  });
+});
+
+describe('lembrete (.ics)', () => {
+  it('gera evento diário no próximo horário, com alarme e link', async () => {
+    const { buildReminderIcs, parseTime } = await import('./ics');
+    const now = new Date(2026, 10, 20, 21, 0);
+    const ics = buildReminderIcs('20:30', 'https://exemplo/app/', now);
+    expect(ics).toContain('RRULE:FREQ=DAILY');
+    expect(ics).toContain('DTSTART:20261121T203000');
+    expect(ics).toContain('BEGIN:VALARM');
+    expect(ics).toContain('https://exemplo/app/');
+    expect(buildReminderIcs('22:00', 'u', now)).toContain('DTSTART:20261120T220000');
+    expect(parseTime('25:00')).toBeNull();
+  });
+});
+
+describe('medalhas', () => {
+  it('concede uma vez e registra a data', async () => {
+    const { awardMedals } = await import('./medals');
+    let p = recordAnswer(emptyProgress(), NOW, true);
+    const first = awardMedals(p, NOW);
+    expect(first.awarded.map((m) => m.id)).toContain('decolagem');
+    p = first.progress;
+    expect(awardMedals(p, NOW).awarded).toHaveLength(0);
+    p = { ...p, totalMs: 61 * 60_000 };
+    expect(awardMedals(p, NOW).awarded.map((m) => m.id)).toContain('hour');
+  });
+});
+
+describe('caderno de erros', () => {
+  it('lista os erros recentes, do mais novo para o mais antigo', async () => {
+    const { mistakeItems } = await import('./session');
+    const items = pack1.items.slice(0, 5);
+    const cards: Record<string, CardState> = {
+      [items[0]!.id]: { ...newCard(NOW), lastWrong: NOW - DAY },
+      [items[1]!.id]: { ...newCard(NOW), lastWrong: NOW - 30 * DAY },
+      [items[2]!.id]: { ...newCard(NOW), lastWrong: NOW - 1000 },
+      [items[3]!.id]: newCard(NOW),
+    };
+    expect(mistakeItems(items, cards, NOW).map((i) => i.id)).toEqual([items[2]!.id, items[0]!.id]);
   });
 });
